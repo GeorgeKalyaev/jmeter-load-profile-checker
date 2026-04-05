@@ -28,7 +28,7 @@ python prepare_test.py SimpleLoadTest.jmx influx_config_localhost.json
 4) Запустить тест в JMeter
 - Пример (CLI):
 ```powershell
-"C:\Users\kalya\JmeterReport\apache-jmeter-5.5\bin\jmeter.bat" -n -t SimpleLoadTest.jmx -l results.jtl
+jmeter.bat -n -t SimpleLoadTest.jmx -l results.jtl
 ```
 
 5) После завершения теста — сгенерировать отчет
@@ -68,7 +68,7 @@ python check_load_profile.py <test_run_id> influx_config_localhost.json
 ### 0) Предварительные условия (один раз)
 - Установлен Python 3
 - InfluxDB 1.x запущен и доступен
-- JMeter 5.5 установлен (папка `apache-jmeter-5.5` есть)
+- Установлен Apache JMeter 5.x ([скачать](https://jmeter.apache.org/download_jmeter.cgi)); `jmeter.bat` в `PATH` или полный путь к `bin\jmeter.bat`
 - В файле `influx_config_localhost.json` указаны:
   - `influx_url`: `http://localhost:8086`
   - `influx_db`: `jmeter`

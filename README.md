@@ -28,7 +28,7 @@ python prepare_test.py SimpleLoadTest.jmx influx_config_localhost.json
 4) Run the test in JMeter
 - Example (CLI):
 ```powershell
-"C:\Users\kalya\JmeterReport\apache-jmeter-5.5\bin\jmeter.bat" -n -t SimpleLoadTest.jmx -l results.jtl
+jmeter.bat -n -t SimpleLoadTest.jmx -l results.jtl
 ```
 
 5) After the test — generate report
@@ -68,7 +68,7 @@ The PNG is a **real screenshot** of [`load_profile_check_test_20260123_011440.ht
 ### 0) Prerequisites (one time)
 - Python 3
 - InfluxDB 1.x is running and reachable
-- JMeter 5.5 installed (folder `apache-jmeter-5.5`)
+- Apache JMeter 5.x installed ([download](https://jmeter.apache.org/download_jmeter.cgi)); ensure `jmeter.bat` is on `PATH` or use the full path to `bin\jmeter.bat`
 - In `influx_config_localhost.json`:
   - `influx_url`: `http://localhost:8086`
   - `influx_db`: `jmeter`
@@ -117,7 +117,7 @@ python check_load_profile.py test_20260123_011440 influx_config_localhost.json 2
 - Via GUI — as usual
 - Via CLI:
 ```powershell
-"C:\Users\kalya\JmeterReport\apache-jmeter-5.5\bin\jmeter.bat" -n -t SimpleLoadTest.jmx -l results.jtl
+jmeter.bat -n -t SimpleLoadTest.jmx -l results.jtl
 ```
 
 Check JMeter logs:
