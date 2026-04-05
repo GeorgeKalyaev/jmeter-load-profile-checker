@@ -50,7 +50,7 @@ The script writes an HTML report that compares **target vs actual** load (RPS by
 
 **Viewing on GitHub:** the file is shown as source code, not as a rendered page. After cloning, open it locally (double-click or `Start-Process` in PowerShell). **Embedding HTML inside README is not supported** on GitHub (and most Markdown hosts) for security reasons.
 
-**Preview without opening the file:** use a screenshot in the README (full-page capture of the HTML — scaled to half size for a smaller file; on GitHub click the image to view it at full resolution):
+**Preview without opening the file:** use a screenshot in the README (full-page capture at the same viewport size as in the browser, ~1387×3731 px; on GitHub click the image to zoom):
 
 ![Example: load profile check report (full page)](docs/images/load-profile-check-sample.png)
 
