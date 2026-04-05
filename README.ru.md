@@ -48,13 +48,7 @@ python check_load_profile.py <test_run_id> influx_config_localhost.json
 
 - [`load_profile_check_test_20260123_011440.html`](load_profile_check_test_20260123_011440.html)
 
-**Просмотр на GitHub:** файл откроется как исходный код, а не как страница в браузере. Удобнее открыть локально после клонирования (двойной щелчок или `Start-Process` в PowerShell). **Вставить живой HTML в README нельзя** — так устроены GitHub и большинство рендеров Markdown (безопасность).
-
-**Картинка «сразу в README»** — скриншот **всей страницы** отчёта в масштабе окна браузера (~1387×3906 px; на GitHub нажмите на картинку для увеличения):
-
-![Пример: полный отчёт о сверке профиля](docs/images/load-profile-check-sample.png)
-
-Файл PNG — полноразмерный скриншот того же примера, что и [`load_profile_check_test_20260123_011440.html`](load_profile_check_test_20260123_011440.html). При необходимости замените его скриншотом другого прогона.
+![Пример итогового отчёта](docs/images/load-profile-check-sample.png)
 
 ## 📚 Подробная пошаговая инструкция
 
