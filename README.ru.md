@@ -42,8 +42,19 @@ python check_load_profile.py <test_run_id> influx_config_localhost.json
 - Для удалённой БД используйте `influx_config.json` вместо `influx_config_localhost.json`.
 - Ручной путь без `prepare_test.py`: `python parse_jmx_profile.py SimpleLoadTest.jmx` → `python send_profile_to_influx.py SimpleLoadTest.profile.json <test_run_id> influx_config_localhost.json`.
 
-Пример отчёта:
-- Образец HTML, который генерируется: `load_profile_check_test_20260123_011440.html`
+### Пример итогового отчёта
+
+В конце работы скрипт создаёт HTML со **сравнением целевого и фактического** профиля (RPS по ступеням, thread group, статусы). Готовый пример из этого репозитория:
+
+- [`load_profile_check_test_20260123_011440.html`](load_profile_check_test_20260123_011440.html)
+
+**Просмотр на GitHub:** файл откроется как исходный код, а не как страница в браузере. Удобнее открыть локально после клонирования (двойной щелчок или `Start-Process` в PowerShell). **Вставить живой HTML в README нельзя** — так устроены GitHub и большинство рендеров Markdown (безопасность).
+
+**Картинка «сразу в README»** — обычно делают скриншот открытого отчёта:
+
+![Пример: вид отчёта о сверке профиля](docs/images/load-profile-check-sample.png)
+
+Файл PNG — **реальный скриншот** страницы [`load_profile_check_test_20260123_011440.html`](load_profile_check_test_20260123_011440.html) (тот же пример отчёта). При необходимости замените его скриншотом другого прогона.
 
 ## 📚 Подробная пошаговая инструкция
 

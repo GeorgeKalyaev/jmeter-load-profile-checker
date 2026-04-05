@@ -42,8 +42,19 @@ Notes:
 - For remote DB use `influx_config.json` instead of `influx_config_localhost.json`.
 - Manual path without `prepare_test.py`: `python parse_jmx_profile.py SimpleLoadTest.jmx` → `python send_profile_to_influx.py SimpleLoadTest.profile.json <test_run_id> influx_config_localhost.json`.
 
-Sample report:
-- See example HTML created by the tool: `load_profile_check_test_20260123_011440.html`
+### Sample report (end result)
+
+The script writes an HTML report that compares **target vs actual** load (RPS by stage, thread groups, status). A real output from this repo is:
+
+- [`load_profile_check_test_20260123_011440.html`](load_profile_check_test_20260123_011440.html)
+
+**Viewing on GitHub:** the file is shown as source code, not as a rendered page. After cloning, open it locally (double-click or `Start-Process` in PowerShell). **Embedding HTML inside README is not supported** on GitHub (and most Markdown hosts) for security reasons.
+
+**Preview without opening the file:** use a screenshot in the README:
+
+![Example: load profile check report (layout)](docs/images/load-profile-check-sample.png)
+
+The PNG is a **real screenshot** of [`load_profile_check_test_20260123_011440.html`](load_profile_check_test_20260123_011440.html) (same file as the sample report). Replace it if you want the README to show another run.
 
 ## 📚 Detailed step-by-step guide
 
