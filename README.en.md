@@ -11,7 +11,7 @@ End-to-end toolkit to:
 ### Prerequisites
 - Python 3
 - InfluxDB 1.x running and reachable
-- Apache JMeter 5.5 installed (folder `apache-jmeter-5.5`)
+- Apache JMeter 5.x installed ([download](https://jmeter.apache.org/download_jmeter.cgi)); add `jmeter.bat` to `PATH` or call it by full path under `bin\`
 
 ### Quick start (TL;DR)
 1) Initialize InfluxDB (one time)
@@ -34,7 +34,7 @@ Copy the printed `test_YYYYMMDD_HHMMSS` value.
 
 4) Run the test (CLI example)
 ```powershell
-"C:\Users\kalya\JmeterReport\apache-jmeter-5.5\bin\jmeter.bat" -n -t SimpleLoadTest.jmx -l results.jtl
+jmeter.bat -n -t SimpleLoadTest.jmx -l results.jtl
 ```
 
 5) Generate HTML report
