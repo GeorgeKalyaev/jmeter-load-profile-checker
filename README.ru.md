@@ -1,5 +1,5 @@
-# Русская версия
+# Русский
 
-Вся актуальная инструкция — в корневом **[README.md](README.md)**.
+Полная инструкция: **[README.md](README.md)**.
 
-[English summary](README.md#english-short)
+[English](README.en.md)
