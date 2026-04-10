@@ -77,4 +77,8 @@
 | `influx_config_localhost.json` | Пример для локального Influx |
 | `SimpleLoadTest.jmx` | Пример плана (3×UTG, Backend Listener, StageTracker) |
 
-Пример скриншота отчёта: [`docs/images/load-profile-check-sample.png`](docs/images/load-profile-check-sample.png).
+### Пример HTML-отчёта
+
+Так может выглядеть итоговый отчёт `check_load_profile` (скрин из репозитория):
+
+![Пример отчёта проверки профиля нагрузки](docs/images/load-profile-check-sample.png)

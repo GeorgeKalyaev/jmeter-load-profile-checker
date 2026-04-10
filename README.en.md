@@ -77,4 +77,8 @@ In B2, build the report with **`check_load_profile.py`** and an explicit ID; or,
 | `influx_config_localhost.json` | Example for local Influx |
 | `SimpleLoadTest.jmx` | Sample plan (3× UTG, Backend Listener, StageTracker) |
 
-Example report screenshot: [`docs/images/load-profile-check-sample.png`](docs/images/load-profile-check-sample.png).
+### Sample HTML report
+
+What the `check_load_profile` output can look like (screenshot from this repo):
+
+![Sample load profile check report](docs/images/load-profile-check-sample.png)
