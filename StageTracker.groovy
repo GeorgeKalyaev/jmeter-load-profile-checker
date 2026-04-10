@@ -20,6 +20,12 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.Base64
 
+// Сопоставление имён TG: в JMX часто «UC_08_ P1_Group», в Influx/отчётах то же без пробела
+def normalizeThreadGroupName = { String name ->
+    if (name == null) return ""
+    return name.trim().replaceAll(/\s+/, "_")
+}
+
 // Получаем test_run ID
 String testRun = vars.get("test_run") ?: props.get("test_run") ?: "unknown"
 
@@ -71,8 +77,9 @@ if (!profileJson) {
 
 def profile = new JsonSlurper().parseText(profileJson)
 
-// Ищем текущую Thread Group в профиле
-def tg = profile.thread_groups.find { it.name == currentTG }
+// Ищем текущую Thread Group в профиле (имя может отличаться пробелами)
+String currentTGNorm = normalizeThreadGroupName(currentTG)
+def tg = profile.thread_groups.find { normalizeThreadGroupName(it.name as String) == currentTGNorm }
 if (!tg) {
     return  // Thread Group не найдена в профиле
 }
@@ -82,16 +89,19 @@ def stages = tg.stages ?: []
 def currentStageKey = "${testRun}_${currentTG}_current_stage"
 def lastKnownStageIdx = props.get(currentStageKey) ? props.get(currentStageKey).toInteger() : -1
 
-// Находим текущую ступень на основе elapsedSeconds
+// Находим текущую ступень: интервалы плато в Ultimate Thread Group перекрываются
+// (ступень 0 часто [t0..конец], ступень 1 [t1..конец], …). Первая же подходящая
+// всегда даёт ступень 0 — поэтому берём ступень с наибольшим plateau_start_s.
 def currentStage = null
+int bestPlateauStart = -1
 for (stage in stages) {
     int plateauStart = stage.plateau_start_s ?: 0
     int plateauEnd = stage.plateau_end_s ?: Integer.MAX_VALUE
-    
-    // Проверяем, вошли ли мы в плато этой ступени
     if (elapsedSeconds >= plateauStart && elapsedSeconds < plateauEnd) {
-        currentStage = stage
-        break
+        if (plateauStart > bestPlateauStart) {
+            bestPlateauStart = plateauStart
+            currentStage = stage
+        }
     }
 }
 

@@ -1,7 +1,0 @@
-{
-  "influx_url": "http://YOUR_INFLUX_HOST:8086",
-  "influx_db": "jmeter",
-  "influx_user": "jmeter_user",
-  "influx_pass": "changeme",
-  "_comment": "Настройки InfluxDB для рабочей среды. Эти же данные используются в Backend Listener в JMX. Если меняете здесь, обновите и в JMX. Для локального тестирования используйте influx_config_localhost.json"
-}

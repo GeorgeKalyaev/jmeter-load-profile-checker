@@ -1,0 +1,7 @@
+{
+  "influx_url": "http://YOUR_INFLUX_HOST:8086",
+  "influx_db": "YOUR_DATABASE_NAME",
+  "influx_user": "YOUR_INFLUX_USERNAME",
+  "influx_pass": "YOUR_INFLUX_PASSWORD",
+  "aggregation_interval": 10
+}

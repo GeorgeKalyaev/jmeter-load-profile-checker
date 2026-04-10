@@ -4,19 +4,36 @@
 
 import sys
 import subprocess
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
 
+
+def patch_test_run_in_jmx(jmx_path: Path, test_run_id: str) -> None:
+    tree = ET.parse(jmx_path)
+    root = tree.getroot()
+    for elem in root.iter("elementProp"):
+        if elem.get("name") == "test_run":
+            for sp in elem.findall("stringProp"):
+                if sp.get("name") == "Argument.value":
+                    sp.text = test_run_id
+                    break
+    tree.write(jmx_path, encoding="UTF-8", xml_declaration=True)
+
+
 def main():
-    if len(sys.argv) < 2:
+    argv = [a for a in sys.argv[1:] if a != "--patch-jmx"]
+    patch_jmx = "--patch-jmx" in sys.argv
+
+    if len(argv) < 1:
         jmx_file = "SimpleLoadTest.jmx"
     else:
-        jmx_file = sys.argv[1]
-    
-    if len(sys.argv) < 3:
+        jmx_file = argv[0]
+
+    if len(argv) < 2:
         config_file = "influx_config_localhost.json"
     else:
-        config_file = sys.argv[2]
+        config_file = argv[1]
     
     print("=" * 60)
     print("ПОДГОТОВКА К НОВОМУ ТЕСТУ")
@@ -50,6 +67,10 @@ def main():
     with open("test_run_id.txt", "w", encoding="utf-8") as f:
         f.write(test_run_id)
     print("[OK] test_run_id сохранен в test_run_id.txt")
+    if patch_jmx:
+        jp = Path(jmx_file)
+        patch_test_run_in_jmx(jp, test_run_id)
+        print(f"[OK] test_run записан в JMX: {jp.name}")
     print()
     
     # Шаг 3: Отправка профиля в InfluxDB
@@ -80,10 +101,14 @@ def main():
     print(f"Test Run ID: {test_run_id}")
     print()
     print("Следующие шаги:")
-    print(f"1. Откройте {jmx_file} в JMeter")
-    print("2. В User Defined Variables найдите test_run")
-    print(f"3. Замените значение на: {test_run_id}")
-    print("4. Запустите тест")
+    if not patch_jmx:
+        print(f"1. Откройте {jmx_file} в JMeter")
+        print("2. В User Defined Variables найдите test_run")
+        print(f"3. Замените значение на: {test_run_id}")
+        print("4. Запустите тест")
+    else:
+        print(f"1. Откройте {jmx_file} в JMeter (test_run уже подставлен)")
+        print("2. Запустите тест")
     print()
     print("После завершения теста запустите:")
     print(f"  python check_load_profile.py {test_run_id} {config_file}")
