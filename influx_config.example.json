@@ -3,5 +3,6 @@
   "influx_db": "YOUR_DATABASE_NAME",
   "influx_user": "YOUR_INFLUX_USERNAME",
   "influx_pass": "YOUR_INFLUX_PASSWORD",
-  "aggregation_interval": 10
+  "aggregation_interval": 5.0,
+  "_comment": "aggregation_interval — секунды, как в JMeter Backend Listener (Sending interval) и как делитель в запросах Grafana к jmeter count, если сравниваете с графиками."
 }

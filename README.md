@@ -38,7 +38,7 @@
 ## На что обратить внимание
 
 - Один и тот же **`test_run`** при отправке профиля, в **User Defined Variables** в JMX и при отчёте.
-- `aggregation_interval` в JSON должен совпадать с интервалом агрегации **Backend Listener** в JMeter (по умолчанию в примерах — 10 с).
+- `aggregation_interval` в JSON должен совпадать с **Sending interval** у **Backend Listener** в JMeter и с тем, как вы считаете RPS в Grafana (например `sum("count") / N` → `N`). В `SimpleLoadTest.jmx` интервал в JMX не задан явно — у Influx Backend Listener обычно **5 с** по умолчанию; в `influx_config_localhost.json` стоит `5.0`.
 - Для локального Influx на `localhost` можно использовать `influx_config_localhost.json` (учётка/пароль по умолчанию только для dev).
 
 ---

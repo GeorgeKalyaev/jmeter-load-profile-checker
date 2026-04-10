@@ -3,5 +3,8 @@
   "influx_db": "jmeter",
   "influx_user": "jmeter_user",
   "influx_pass": "changeme",
-  "aggregation_interval": 10
+  "aggregation_interval": 5.0,
+  "_comment": "Локальный InfluxDB. Учётные данные смените под свою установку.",
+  "_comment2": "aggregation_interval (сек) должен совпадать с интервалом отправки метрик в Backend Listener JMeter (в GUI — Sending interval; если в JMX параметр не задан, у InfluxDB Backend Listener часто 5 с по умолчанию).",
+  "_comment3": "Если в Grafana RPS считаете как sum(\"count\") / N за окно N с, поставьте здесь то же N — тогда оценки в HTML-отчёте будут согласованы с дашбордом."
 }
