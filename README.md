@@ -1,8 +1,8 @@
 # Профиль нагрузки JMeter + InfluxDB
 
-Краткая инструкция: что запускать и в каком порядке. Рабочие URL и пароли держите в **локальном** JSON (скопируйте из `influx_config.example.json`), не коммитьте.
+[English](README.en.md)
 
-[English (short)](#english-short)
+Краткая инструкция: что запускать и в каком порядке. Рабочие URL и пароли держите в **локальном** JSON (скопируйте из `influx_config.example.json`), не коммитьте.
 
 ---
 
@@ -77,12 +77,4 @@
 | `influx_config_localhost.json` | Пример для локального Influx |
 | `SimpleLoadTest.jmx` | Пример плана (3×UTG, Backend Listener, StageTracker) |
 
----
-
-## English (short)
-
-Python never starts JMeter. Examples use **`SimpleLoadTest.jmx`** and **`influx_config_localhost.json`**. **Option A:** `prepare` → JMeter → `report`. **Option B:** `prepare_test.py … --patch-jmx` → JMeter → `check_load_profile.py <id> influx_config_localhost.json`, or full chain `parse_jmx_profile.py SimpleLoadTest.jmx` → `test_run_id.txt` → `send_profile_to_influx.py SimpleLoadTest.profile.json …` → set `test_run` in JMeter → JMeter → `check_load_profile.py`.
-
-1. Copy `influx_config.example.json` to a local file — **do not commit** secrets.  
-2. Once if needed: `python init_influxdb.py your_config.json`  
-3. Option A: `python jmeter_load_pipeline.py prepare SimpleLoadTest.jmx --config influx_config_localhost.json` → JMeter → `python jmeter_load_pipeline.py report --config influx_config_localhost.json` *(replace config with your JSON if not localhost).*
+Пример скриншота отчёта: [`docs/images/load-profile-check-sample.png`](docs/images/load-profile-check-sample.png).
