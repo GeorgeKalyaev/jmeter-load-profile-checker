@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='UTF-8'?>
 <jmeterTestPlan version="1.2" properties="5.0" jmeter="5.5">
   <hashTree>
     <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="UC_SimpleLoadTest" enabled="true">
@@ -6,16 +6,16 @@
       <boolProp name="TestPlan.functional_mode">false</boolProp>
       <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
       <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="User Defined Variables" enabled="true">
-        <collectionProp name="Arguments.arguments"/>
+        <collectionProp name="Arguments.arguments" />
       </elementProp>
-      <stringProp name="TestPlan.user_define_classpath"></stringProp>
+      <stringProp name="TestPlan.user_define_classpath" />
     </TestPlan>
     <hashTree>
       <Arguments guiclass="ArgumentsPanel" testclass="Arguments" testname="User Defined Variables" enabled="true">
         <collectionProp name="Arguments.arguments">
           <elementProp name="test_run" elementType="Argument">
             <stringProp name="Argument.name">test_run</stringProp>
-            <stringProp name="Argument.value">test_20260123_011440</stringProp>
+            <stringProp name="Argument.value">test_20260410_195244</stringProp>
             <stringProp name="Argument.desc">Уникальный ID теста (установите вручную перед запуском, чтобы совпадал с профилем в InfluxDB)</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
@@ -41,19 +41,19 @@
           </elementProp>
         </collectionProp>
       </Arguments>
-      <hashTree/>
+      <hashTree />
       <CacheManager guiclass="CacheManagerGui" testclass="CacheManager" testname="HTTP Cache Manager" enabled="true">
         <boolProp name="clearEachIteration">true</boolProp>
         <boolProp name="useExpires">true</boolProp>
         <boolProp name="CacheManager.controlledByThread">false</boolProp>
       </CacheManager>
-      <hashTree/>
+      <hashTree />
       <CookieManager guiclass="CookiePanel" testclass="CookieManager" testname="HTTP Cookie Manager" enabled="true">
-        <collectionProp name="CookieManager.cookies"/>
+        <collectionProp name="CookieManager.cookies" />
         <boolProp name="CookieManager.clearEachIteration">true</boolProp>
         <boolProp name="CookieManager.controlledByThreadGroup">false</boolProp>
       </CookieManager>
-      <hashTree/>
+      <hashTree />
       <kg.apc.jmeter.threads.UltimateThreadGroup guiclass="kg.apc.jmeter.threads.UltimateThreadGroupGui" testclass="kg.apc.jmeter.threads.UltimateThreadGroup" testname="UC_01_Yandex" enabled="true">
         <collectionProp name="ultimatethreadgroupdata">
           <collectionProp name="1254171138">
@@ -99,7 +99,7 @@
             </doubleProp>
             <intProp name="calcMode">0</intProp>
           </ConstantThroughputTimer>
-          <hashTree/>
+          <hashTree />
         </hashTree>
         <ModuleController guiclass="ModuleControllerGui" testclass="ModuleController" testname="Module Controller" enabled="true">
           <collectionProp name="ModuleController.node_path">
@@ -109,7 +109,7 @@
             <stringProp name="-1652607619">_UC_01_Yandex</stringProp>
           </collectionProp>
         </ModuleController>
-        <hashTree/>
+        <hashTree />
       </hashTree>
       <kg.apc.jmeter.threads.UltimateThreadGroup guiclass="kg.apc.jmeter.threads.UltimateThreadGroupGui" testclass="kg.apc.jmeter.threads.UltimateThreadGroup" testname="UC_02_Google" enabled="true">
         <collectionProp name="ultimatethreadgroupdata">
@@ -156,7 +156,7 @@
             </doubleProp>
             <intProp name="calcMode">0</intProp>
           </ConstantThroughputTimer>
-          <hashTree/>
+          <hashTree />
         </hashTree>
         <ModuleController guiclass="ModuleControllerGui" testclass="ModuleController" testname="Module Controller" enabled="true">
           <collectionProp name="ModuleController.node_path">
@@ -166,7 +166,7 @@
             <stringProp name="-412159836">_UC_02_Google</stringProp>
           </collectionProp>
         </ModuleController>
-        <hashTree/>
+        <hashTree />
       </hashTree>
       <kg.apc.jmeter.threads.UltimateThreadGroup guiclass="kg.apc.jmeter.threads.UltimateThreadGroupGui" testclass="kg.apc.jmeter.threads.UltimateThreadGroup" testname="UC_03_GitHub" enabled="true">
         <collectionProp name="ultimatethreadgroupdata">
@@ -213,7 +213,7 @@
             </doubleProp>
             <intProp name="calcMode">0</intProp>
           </ConstantThroughputTimer>
-          <hashTree/>
+          <hashTree />
         </hashTree>
         <ModuleController guiclass="ModuleControllerGui" testclass="ModuleController" testname="Module Controller" enabled="true">
           <collectionProp name="ModuleController.node_path">
@@ -223,7 +223,7 @@
             <stringProp name="1325228813">_UC_03_GitHub</stringProp>
           </collectionProp>
         </ModuleController>
-        <hashTree/>
+        <hashTree />
       </hashTree>
       <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="UC_01_Yandex" enabled="false">
         <stringProp name="ThreadGroup.on_sample_error">startnextloop</stringProp>
@@ -234,8 +234,8 @@
         <stringProp name="ThreadGroup.num_threads">1</stringProp>
         <stringProp name="ThreadGroup.ramp_time">1</stringProp>
         <boolProp name="ThreadGroup.scheduler">false</boolProp>
-        <stringProp name="ThreadGroup.duration"></stringProp>
-        <stringProp name="ThreadGroup.delay"></stringProp>
+        <stringProp name="ThreadGroup.duration" />
+        <stringProp name="ThreadGroup.delay" />
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
       </ThreadGroup>
       <hashTree>
@@ -246,23 +246,23 @@
         <hashTree>
           <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP Request Yandex" enabled="true">
             <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" enabled="true">
-              <collectionProp name="Arguments.arguments"/>
+              <collectionProp name="Arguments.arguments" />
             </elementProp>
             <stringProp name="HTTPSampler.domain">yandex.ru</stringProp>
-            <stringProp name="HTTPSampler.port"></stringProp>
-            <stringProp name="HTTPSampler.protocol"></stringProp>
-            <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+            <stringProp name="HTTPSampler.port" />
+            <stringProp name="HTTPSampler.protocol" />
+            <stringProp name="HTTPSampler.contentEncoding" />
             <stringProp name="HTTPSampler.path">/</stringProp>
             <stringProp name="HTTPSampler.method">GET</stringProp>
             <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
             <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
             <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
             <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
-            <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
-            <stringProp name="HTTPSampler.connect_timeout"></stringProp>
-            <stringProp name="HTTPSampler.response_timeout"></stringProp>
+            <stringProp name="HTTPSampler.embedded_url_re" />
+            <stringProp name="HTTPSampler.connect_timeout" />
+            <stringProp name="HTTPSampler.response_timeout" />
           </HTTPSamplerProxy>
-          <hashTree/>
+          <hashTree />
         </hashTree>
       </hashTree>
       <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="UC_02_Google" enabled="false">
@@ -274,8 +274,8 @@
         <stringProp name="ThreadGroup.num_threads">1</stringProp>
         <stringProp name="ThreadGroup.ramp_time">1</stringProp>
         <boolProp name="ThreadGroup.scheduler">false</boolProp>
-        <stringProp name="ThreadGroup.duration"></stringProp>
-        <stringProp name="ThreadGroup.delay"></stringProp>
+        <stringProp name="ThreadGroup.duration" />
+        <stringProp name="ThreadGroup.delay" />
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
       </ThreadGroup>
       <hashTree>
@@ -286,23 +286,23 @@
         <hashTree>
           <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP Request Google" enabled="true">
             <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" enabled="true">
-              <collectionProp name="Arguments.arguments"/>
+              <collectionProp name="Arguments.arguments" />
             </elementProp>
             <stringProp name="HTTPSampler.domain">google.com</stringProp>
-            <stringProp name="HTTPSampler.port"></stringProp>
-            <stringProp name="HTTPSampler.protocol"></stringProp>
-            <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+            <stringProp name="HTTPSampler.port" />
+            <stringProp name="HTTPSampler.protocol" />
+            <stringProp name="HTTPSampler.contentEncoding" />
             <stringProp name="HTTPSampler.path">/</stringProp>
             <stringProp name="HTTPSampler.method">GET</stringProp>
             <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
             <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
             <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
             <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
-            <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
-            <stringProp name="HTTPSampler.connect_timeout"></stringProp>
-            <stringProp name="HTTPSampler.response_timeout"></stringProp>
+            <stringProp name="HTTPSampler.embedded_url_re" />
+            <stringProp name="HTTPSampler.connect_timeout" />
+            <stringProp name="HTTPSampler.response_timeout" />
           </HTTPSamplerProxy>
-          <hashTree/>
+          <hashTree />
         </hashTree>
       </hashTree>
       <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="UC_03_GitHub" enabled="false">
@@ -314,8 +314,8 @@
         <stringProp name="ThreadGroup.num_threads">1</stringProp>
         <stringProp name="ThreadGroup.ramp_time">1</stringProp>
         <boolProp name="ThreadGroup.scheduler">false</boolProp>
-        <stringProp name="ThreadGroup.duration"></stringProp>
-        <stringProp name="ThreadGroup.delay"></stringProp>
+        <stringProp name="ThreadGroup.duration" />
+        <stringProp name="ThreadGroup.delay" />
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
       </ThreadGroup>
       <hashTree>
@@ -326,23 +326,23 @@
         <hashTree>
           <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP Request GitHub" enabled="true">
             <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" enabled="true">
-              <collectionProp name="Arguments.arguments"/>
+              <collectionProp name="Arguments.arguments" />
             </elementProp>
             <stringProp name="HTTPSampler.domain">github.com</stringProp>
-            <stringProp name="HTTPSampler.port"></stringProp>
-            <stringProp name="HTTPSampler.protocol"></stringProp>
-            <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+            <stringProp name="HTTPSampler.port" />
+            <stringProp name="HTTPSampler.protocol" />
+            <stringProp name="HTTPSampler.contentEncoding" />
             <stringProp name="HTTPSampler.path">/</stringProp>
             <stringProp name="HTTPSampler.method">GET</stringProp>
             <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
             <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
             <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
             <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
-            <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
-            <stringProp name="HTTPSampler.connect_timeout"></stringProp>
-            <stringProp name="HTTPSampler.response_timeout"></stringProp>
+            <stringProp name="HTTPSampler.embedded_url_re" />
+            <stringProp name="HTTPSampler.connect_timeout" />
+            <stringProp name="HTTPSampler.response_timeout" />
           </HTTPSamplerProxy>
-          <hashTree/>
+          <hashTree />
         </hashTree>
       </hashTree>
       <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="View Results Tree" enabled="true">
@@ -379,283 +379,17 @@
             <connectTime>true</connectTime>
           </value>
         </objProp>
-        <stringProp name="filename"></stringProp>
+        <stringProp name="filename" />
       </ResultCollector>
-      <hashTree/>
+      <hashTree />
       <JSR223Listener guiclass="TestBeanGUI" testclass="JSR223Listener" testname="JSR223 Listener" enabled="true">
         <stringProp name="cacheKey">true</stringProp>
-        <stringProp name="filename"></stringProp>
-        <stringProp name="parameters"></stringProp>
-        <stringProp name="script">/**
- * JSR223 Listener для отслеживания переходов между ступенями нагрузки.
- * 
- * Установка:
- * 1. Добавьте JSR223 Listener в Test Plan (на уровне Test Plan, чтобы работал для всех UTG)
- * 2. Language: groovy
- * 3. Script file: путь к этому файлу StageTracker.groovy
- * 4. Или вставьте код в Script text area
- * 
- * Требования:
- * - Переменная ${test_run} должна быть установлена в User Defined Variables
- * - InfluxDB URL и credentials можно задать через переменные (influx_url, influx_db, influx_user, influx_pass)
- *   или будут использованы значения по умолчанию
- * - Профиль должен быть заранее отправлен в InfluxDB через send_profile_to_influx.py
- */
-
-import groovy.json.JsonSlurper
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import java.util.Base64
-
-// Получаем test_run ID
-String testRun = vars.get(&quot;test_run&quot;) ?: props.get(&quot;test_run&quot;) ?: &quot;unknown&quot;
-
-// InfluxDB настройки
-// Приоритет: 1) User Defined Variables в JMeter, 2) значения по умолчанию ниже
-// ⚠️ ВАЖНО: Если меняете настройки, обновите также:
-//   - influx_config.json (для Python скриптов)
-//   - Backend Listener в JMX (параметр influxdbUrl)
-// Для локального тестирования измените на: http://localhost:8086
-String influxUrl = vars.get(&quot;influx_url&quot;) ?: props.get(&quot;influx_url&quot;) ?: &quot;http://localhost:8086&quot;
-String influxDb = vars.get(&quot;influx_db&quot;) ?: props.get(&quot;influx_db&quot;) ?: &quot;jmeter&quot;
-String influxUser = vars.get(&quot;influx_user&quot;) ?: props.get(&quot;influx_user&quot;) ?: &quot;jmeter_user&quot;
-String influxPass = vars.get(&quot;influx_pass&quot;) ?: props.get(&quot;influx_pass&quot;) ?: &quot;changeme&quot;
-
-// Загружаем профиль из InfluxDB один раз при инициализации
-if (!props.get(&quot;stage_tracker_initialized&quot;)) {
-    try {
-        def profile = loadProfileFromInflux(testRun, influxUrl, influxDb, influxUser, influxPass)
-        if (profile) {
-            props.put(&quot;load_profile&quot;, new groovy.json.JsonBuilder(profile).toPrettyString())
-            log.info(&quot;StageTracker: Профиль загружен из InfluxDB для test_run=${testRun}&quot;)
-        } else {
-            log.warn(&quot;StageTracker: Профиль не найден в InfluxDB для test_run=${testRun}. Убедитесь, что профиль был отправлен через send_profile_to_influx.py&quot;)
-        }
-    } catch (Exception e) {
-        log.error(&quot;StageTracker: Ошибка загрузки профиля из InfluxDB: ${e.message}&quot;, e)
-    }
-    props.put(&quot;stage_tracker_initialized&quot;, &quot;true&quot;)
-}
-
-// Получаем текущее время теста в секундах
-// Устанавливаем TESTSTART.MS при первом вызове, если он еще не установлен
-if (!props.get(&quot;TESTSTART.MS&quot;)) {
-    props.put(&quot;TESTSTART.MS&quot;, String.valueOf(System.currentTimeMillis()))
-}
-
-long testStartTime = props.get(&quot;TESTSTART.MS&quot;).toLong()
-long currentTime = System.currentTimeMillis()
-long elapsedSeconds = (currentTime - testStartTime) / 1000
-
-// Получаем имя текущей Thread Group
-String currentTG = ctx.getThreadGroup().getName()
-
-// Парсим профиль
-def profileJson = props.get(&quot;load_profile&quot;)
-if (!profileJson) {
-    return  // Нет профиля - ничего не делаем
-}
-
-def profile = new JsonSlurper().parseText(profileJson)
-
-// Ищем текущую Thread Group в профиле
-def tg = profile.thread_groups.find { it.name == currentTG }
-if (!tg) {
-    return  // Thread Group не найдена в профиле
-}
-
-// Проверяем, не перешли ли мы на новую ступень
-def stages = tg.stages ?: []
-def currentStageKey = &quot;${testRun}_${currentTG}_current_stage&quot;
-def lastKnownStageIdx = props.get(currentStageKey) ? props.get(currentStageKey).toInteger() : -1
-
-// Находим текущую ступень на основе elapsedSeconds
-def currentStage = null
-for (stage in stages) {
-    int plateauStart = stage.plateau_start_s ?: 0
-    int plateauEnd = stage.plateau_end_s ?: Integer.MAX_VALUE
-    
-    // Проверяем, вошли ли мы в плато этой ступени
-    if (elapsedSeconds &gt;= plateauStart &amp;&amp; elapsedSeconds &lt; plateauEnd) {
-        currentStage = stage
-        break
-    }
-}
-
-// Если нашли текущую ступень и она отличается от последней известной, отправляем событие
-if (currentStage != null) {
-    int currentStageIdx = currentStage.stage_idx ?: 0
-    
-    // Проверяем, изменилась ли ступень
-    if (currentStageIdx != lastKnownStageIdx) {
-        String stageKey = &quot;${testRun}_${currentTG}_${currentStageIdx}&quot;
-        
-        // Используем синхронизацию для предотвращения множественных отправок от разных потоков
-        synchronized(this.getClass()) {
-            // Двойная проверка: возможно, другой поток уже отправил событие
-            if (currentStageIdx != (props.get(currentStageKey) ? props.get(currentStageKey).toInteger() : -1)) {
-                // Отправляем событие перехода на ступень в InfluxDB
-                sendStageEvent(testRun, currentTG, currentStage, tg.target_rps, influxUrl, influxDb, influxUser, influxPass)
-                props.put(stageKey, &quot;sent&quot;)
-                props.put(currentStageKey, currentStageIdx.toString())
-                log.info(&quot;StageTracker: Отправлено событие перехода на ступень ${currentStageIdx} для ${currentTG} (t=${elapsedSeconds}s, plateau=${currentStage.plateau_start_s}-${currentStage.plateau_end_s}s)&quot;)
-            }
-        }
-    }
-} else {
-    // Если не нашли текущую ступень, логируем для отладки (только периодически, чтобы не засорять лог)
-    def debugKey = &quot;${testRun}_${currentTG}_debug&quot;
-    def lastDebugTime = props.get(debugKey) ? props.get(debugKey).toLong() : 0
-    if (currentTime - lastDebugTime &gt; 60000) {  // Раз в минуту
-        log.debug(&quot;StageTracker: Не найдена текущая ступень для ${currentTG} при elapsedSeconds=${elapsedSeconds}s. Доступные ступени: ${stages.collect { &quot;${it.stage_idx}: ${it.plateau_start_s}-${it.plateau_end_s}s&quot; }.join(&apos;, &apos;)}&quot;)
-        props.put(debugKey, currentTime.toString())
-    }
-}
-
-/**
- * Загружает профиль нагрузки из InfluxDB по test_run_id
- */
-def loadProfileFromInflux(String testRun, String url, String db, String user, String pass) {
-    try {
-        // Используем GROUP BY для получения всех Thread Groups и всех ступеней
-        String query = &quot;SELECT * FROM \&quot;load_profile\&quot; WHERE \&quot;test_run\&quot; = &apos;${testRun}&apos; GROUP BY \&quot;thread_group\&quot;, \&quot;stage_idx\&quot; ORDER BY time&quot;
-        String queryUrl = &quot;${url}/query?db=${db}&amp;q=${URLEncoder.encode(query, &apos;UTF-8&apos;)}&quot;
-        
-        URL obj = new URL(queryUrl)
-        HttpURLConnection conn = (HttpURLConnection) obj.openConnection()
-        conn.setRequestMethod(&quot;GET&quot;)
-        conn.setConnectTimeout(5000)
-        conn.setReadTimeout(5000)
-        
-        // Basic Auth
-        String auth = &quot;${user}:${pass}&quot;
-        String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes())
-        conn.setRequestProperty(&quot;Authorization&quot;, &quot;Basic ${encodedAuth}&quot;)
-        
-        int responseCode = conn.getResponseCode()
-        if (responseCode != 200) {
-            log.warn(&quot;StageTracker: Неожиданный код ответа InfluxDB при загрузке профиля: ${responseCode}&quot;)
-            return null
-        }
-        
-        // Читаем ответ
-        def response = new groovy.json.JsonSlurper().parseText(conn.inputStream.text)
-        conn.disconnect()
-        
-        if (!response.results || !response.results[0].series) {
-            return null
-        }
-        
-        // Преобразуем данные из InfluxDB в формат профиля
-        def profile = [test_name: testRun, thread_groups: []]
-        def tgMap = [:]
-        
-        response.results[0].series.each { series -&gt;
-            def tags = series.tags
-            String tgName = tags.thread_group
-            if (!tgMap[tgName]) {
-                tgMap[tgName] = [name: tgName, stages: [], target_rps: null]
-            }
-            
-            def values = series.values
-            def columns = series.columns
-            
-            values.each { row -&gt;
-                def rowMap = [:]
-                columns.eachWithIndex { col, idx -&gt;
-                    rowMap[col] = row[idx]
-                }
-                
-                // Извлекаем данные ступени
-                def stage = [
-                    stage_idx: (int)(rowMap.stage_idx ?: 0),
-                    threads: (int)(rowMap.threads ?: 0),
-                    plateau_start_s: (int)(rowMap.plateau_start_s ?: 0),
-                    plateau_end_s: (int)(rowMap.plateau_end_s ?: 0),
-                    hold_s: (int)(rowMap.hold_s ?: 0),
-                ]
-                
-                tgMap[tgName].stages.add(stage)
-                
-                // Сохраняем target_rps из первой записи
-                if (tgMap[tgName].target_rps == null &amp;&amp; rowMap.target_rps != null) {
-                    tgMap[tgName].target_rps = (double)rowMap.target_rps
-                }
-            }
-        }
-        
-        profile.thread_groups = tgMap.values().toList()
-        
-        // Сортируем ступени по stage_idx для каждой TG
-        profile.thread_groups.each { tg -&gt;
-            tg.stages = tg.stages.sort { it.stage_idx }
-        }
-        
-        // Логируем загруженные Thread Groups для отладки
-        def tgNames = profile.thread_groups.collect { it.name }
-        log.info(&quot;StageTracker: Загружено ${profile.thread_groups.size()} Thread Groups из InfluxDB: ${tgNames}&quot;)
-        
-        return profile
-        
-    } catch (Exception e) {
-        log.error(&quot;StageTracker: Ошибка загрузки профиля из InfluxDB: ${e.message}&quot;, e)
-        return null
-    }
-}
-
-/**
- * Отправляет событие перехода на ступень в InfluxDB
- */
-def sendStageEvent(String testRun, String tgName, def stage, def targetRps, String url, String db, String user, String pass) {
-    try {
-        long timestampNs = System.currentTimeMillis() * 1_000_000  // миллисекунды * 1_000_000 = микросекунды (для InfluxDB 1.x это корректно)
-        
-        // Формируем строку в формате InfluxDB Line Protocol
-        String line = String.format(
-            &quot;load_stage_change,test_run=%s,thread_group=%s stage_idx=%d,threads=%d,target_rps=%.2f,plateau_start_s=%d,hold_s=%d %d&quot;,
-            testRun.replace(&quot; &quot;, &quot;\\\\ &quot;),
-            tgName.replace(&quot; &quot;, &quot;\\\\ &quot;).replace(&quot;,&quot;, &quot;\\\\,&quot;),
-            stage.stage_idx ?: 0,
-            stage.threads ?: 0,
-            (targetRps ?: 0.0) as double,
-            stage.plateau_start_s ?: 0,
-            stage.hold_s ?: 0,
-            timestampNs
-        )
-        
-        String writeUrl = &quot;${url}/write?db=${db}&quot;
-        URL obj = new URL(writeUrl)
-        HttpURLConnection conn = (HttpURLConnection) obj.openConnection()
-        conn.setRequestMethod(&quot;POST&quot;)
-        conn.setDoOutput(true)
-        conn.setConnectTimeout(5000)
-        conn.setReadTimeout(5000)
-        
-        // Basic Auth
-        String auth = &quot;${user}:${pass}&quot;
-        String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes())
-        conn.setRequestProperty(&quot;Authorization&quot;, &quot;Basic ${encodedAuth}&quot;)
-        
-        // Отправляем данные
-        conn.getOutputStream().write(line.getBytes(&quot;UTF-8&quot;))
-        
-        int responseCode = conn.getResponseCode()
-        if (responseCode == 204) {
-            log.debug(&quot;StageTracker: Событие успешно отправлено в InfluxDB&quot;)
-        } else {
-            log.warn(&quot;StageTracker: Неожиданный код ответа InfluxDB: ${responseCode}&quot;)
-        }
-        
-        conn.disconnect()
-    } catch (Exception e) {
-        log.error(&quot;StageTracker: Ошибка отправки события в InfluxDB: ${e.message}&quot;, e)
-    }
-}
-</stringProp>
+        <stringProp name="filename">StageTracker.groovy</stringProp>
+        <stringProp name="parameters" />
+        <stringProp name="script"> </stringProp>
         <stringProp name="scriptLanguage">groovy</stringProp>
       </JSR223Listener>
-      <hashTree/>
+      <hashTree />
       <BackendListener guiclass="BackendListenerGui" testclass="BackendListener" testname="Backend Listener" enabled="true">
         <elementProp name="arguments" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" enabled="true">
           <collectionProp name="Arguments.arguments">
@@ -701,14 +435,14 @@ def sendStageEvent(String testRun, String tgName, def stage, def targetRps, Stri
             </elementProp>
             <elementProp name="eventTags" elementType="Argument">
               <stringProp name="Argument.name">eventTags</stringProp>
-              <stringProp name="Argument.value"></stringProp>
+              <stringProp name="Argument.value" />
               <stringProp name="Argument.metadata">=</stringProp>
             </elementProp>
           </collectionProp>
         </elementProp>
         <stringProp name="classname">org.apache.jmeter.visualizers.backend.influxdb.InfluxdbBackendListenerClient</stringProp>
       </BackendListener>
-      <hashTree/>
+      <hashTree />
     </hashTree>
   </hashTree>
 </jmeterTestPlan>

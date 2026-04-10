@@ -3,8 +3,5 @@
   "influx_db": "jmeter",
   "influx_user": "jmeter_user",
   "influx_pass": "changeme",
-  "aggregation_interval": 5.0,
-  "_comment": "Настройки для локального InfluxDB. Используйте этот файл для локального тестирования.",
-  "_comment2": "aggregation_interval - интервал агрегации JMeter Backend Listener в секундах. Согласно дашборду Grafana, используется интервал 5 секунд (sum(count) / 5).",
-  "_comment3": "В Grafana используется запрос: SELECT sum(\"count\") / 5 FROM \"jmeter\" ... GROUP BY time(...)"
+  "aggregation_interval": 10
 }

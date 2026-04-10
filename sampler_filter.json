@@ -1,11 +1,3 @@
 {
-  "_comment": "Список префиксов имен Samplers, которые должны учитываться в отчете",
-  "_comment2": "Укажите префиксы в массиве, например: [\"HTTP\", \"JDBC\", \"SOAP\", \"FTP\"]",
-  "_comment3": "По умолчанию учитываются только Samplers, начинающиеся с \"HTTP\"",
-  "_comment4": "Примеры: \"HTTP Request\" учитывает все Samplers, начинающиеся с \"HTTP Request\"",
-  "_comment5": "Чтобы учитывать JDBC, SOAP, FTP и другие типы, добавьте их в массив ниже",
-  "_comment6": "Пример для учета HTTP, JDBC и SOAP: [\"HTTP\", \"JDBC\", \"SOAP\"]",
-  "allowed_sampler_prefixes": [
-    "HTTP"
-  ]
+  "allowed_sampler_prefixes": ["HTTP"]
 }

@@ -1,0 +1,32 @@
+# Local-only (this file is listed in .git/info/exclude — not pushed to remote)
+
+.filter-repo-replacements.txt
+
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+
+apache-jmeter-5.5/
+
+# Local E2E / JMeter
+*.e2e.run.jmx
+*.e2e.quick.jmx
+*.e2e.quick.profile.json
+e2e_run.jtl
+e2e_*.jtl
+e2e_jmeter.log
+e2e_*.log
+jmeter.log
+test_run_id.txt
+*.profile.json
+load_profile_check_*.html
+load_profile_check_*.json
+
+# Локальные учётки Influx (не коммитить)
+influx_config.local.json
+influx_config.work.json
+influx_config_private.json
