@@ -1,3 +1,7 @@
 {
+  "_comment": "Список префиксов имён Samplers, которые учитываются при разборе JMX и в отчёте (check_load_profile).",
+  "_comment2": "Добавьте префиксы в массив allowed_sampler_prefixes, например: [\"HTTP\", \"JDBC\", \"SOAP\"].",
+  "_comment3": "По умолчанию — только имена, начинающиеся с \"HTTP\" (например \"HTTP Request\").",
+  "_comment4": "Скрипты читают только ключ allowed_sampler_prefixes; поля _comment* — для людей, на логику не влияют.",
   "allowed_sampler_prefixes": ["HTTP"]
 }
