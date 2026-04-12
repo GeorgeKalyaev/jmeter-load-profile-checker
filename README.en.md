@@ -2,7 +2,13 @@
 
 [Russian](README.md)
 
-Short guide: **what to run and in what order**. Keep real URLs and passwords in a **local** JSON file (copy from `influx_config.example.json`); do **not** commit secrets.
+Short guide: **what to run and in what order**.
+
+### Influx settings — one separate file, effectively once
+
+Connection settings for InfluxDB (`influx_url`, `influx_db`, `influx_user`, `influx_pass`, and optionally `aggregation_interval`) live in **a single JSON file**: copy `influx_config.example.json` to your own name (e.g. `influx_config.local.json`), fill it in **for your environment**, and keep it local (**do not commit** secrets). Then pass it in every command with `--config path/to/file.json`. You **do not need to edit the Python source** — scripts read these values from the JSON.
+
+Use the **same** URL and credentials in the JMeter **Backend Listener** (and in Influx-related variables for **StageTracker** in the test plan, if applicable).
 
 ---
 
