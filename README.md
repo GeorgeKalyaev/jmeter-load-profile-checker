@@ -66,30 +66,91 @@ python jmeter_load_pipeline.py report --config influx_config_localhost.json
 
 **Итого порядок:** **`prepare` → JMeter → `report`**.
 
-### Вариант B — команды по порядку
+### Вариант B — по шагам (без `jmeter_load_pipeline`, каждую команду вводите сами)
 
-**B1 (короче):** один скрипт на подготовку, потом JMeter, потом отчёт.
+Здесь нет оркестратора: вы сами запускаете нужные `.py` по очереди. Конфиг Influx по-прежнему **один JSON** (`--config` нет у всех скриптов — путь к конфигу передаётся **вторым/последним аргументом**, см. ниже).
 
-| № | Команда / действие |
-|---|---------------------|
-| 0 | *(опционально)* `python init_influxdb.py influx_config_localhost.json` |
-| 1 | `python prepare_test.py SimpleLoadTest.jmx influx_config_localhost.json --patch-jmx` — в консоли будет **Test Run ID**; он же в `test_run_id.txt` и в JMX. |
-| 2 | Запуск теста в **JMeter**. |
-| 3 | `python check_load_profile.py test_YYYYMMDD_HHMMSS influx_config_localhost.json` — подставьте **тот же** ID, что на шаге 1. |
+---
 
-**B2 (всё раздельно):** три разных скрипта + ручной `test_run` в JMeter (если не патчите JMX).
+#### B1 — короче: один скрипт на подготовку, потом JMeter, потом отчёт
 
-| № | Команда / действие |
-|---|---------------------|
-| 0 | *(опционально)* `python init_influxdb.py influx_config_localhost.json` |
-| 1 | `python parse_jmx_profile.py SimpleLoadTest.jmx` → появится **`SimpleLoadTest.profile.json`**. |
-| 2 | Придумать ID, например `test_20260411_153045`, записать **одной строкой** в файл **`test_run_id.txt`** (удобно для контроля и для `report`, если решите им воспользоваться). |
-| 3 | `python send_profile_to_influx.py SimpleLoadTest.profile.json test_20260411_153045 influx_config_localhost.json` — второй аргумент = **тот же** ID. |
-| 4 | В JMeter: **User Defined Variables** → **`test_run`** = тот же ID *(если не использовали `prepare_test.py --patch-jmx`).* |
-| 5 | Запуск теста в **JMeter**. |
-| 6 | `python check_load_profile.py test_20260411_153045 influx_config_localhost.json` — снова **тот же** ID. |
+**Шаг 0 (опционально)** — то же, что в варианте A:  
+`python init_influxdb.py influx_config_localhost.json`
 
-В B2 отчёт — через **`check_load_profile.py`** с явным ID; либо, если `test_run_id.txt` не меняли, сработает и `python jmeter_load_pipeline.py report --config influx_config_localhost.json`.
+**Шаг 1 — подготовка одной командой**  
+
+```text
+python prepare_test.py SimpleLoadTest.jmx influx_config_localhost.json --patch-jmx
+```
+
+Что сделает скрипт **за вас** (внутри — те же действия, что и у `prepare`, но без `jmeter_load_pipeline`):
+
+1. Запуск **`parse_jmx_profile.py`** → рядом с JMX появится **`SimpleLoadTest.profile.json`**.
+2. Генерация **`test_run`**, запись в **`test_run_id.txt`** и вывод ID в консоль.
+3. Запуск **`send_profile_to_influx.py`** с этим ID и вашим JSON-конфигом.
+4. С флагом **`--patch-jmx`**: подстановка того же **`test_run`** в **User Defined Variables** в файле **JMX** (вручную ID вписывать не нужно).
+
+Без **`--patch-jmx`** профиль и Influx всё равно будут готовы, но переменную **`test_run`** в JMeter нужно будет выставить **вручную** (как в B2, шаг 4).
+
+**Шаг 2 — нагрузка в JMeter (только вы)**  
+Запуск плана, как в варианте A: **StageTracker** на уровне **Test Plan**, **Backend Listener** → тот же Influx, что в JSON.
+
+**Шаг 3 — отчёт**  
+
+```text
+python check_load_profile.py test_YYYYMMDD_HHMMSS influx_config_localhost.json
+```
+
+Подставьте **реальный** ID с шага 1 (тот, что в консоли и в `test_run_id.txt`). На выходе — **`load_profile_check_<test_run>.html`** и **`.json`**.
+
+*Альтернатива:* если **`test_run_id.txt`** вы не трогали после шага 1, можно вместо явного ID вызвать  
+`python jmeter_load_pipeline.py report --config influx_config_localhost.json` — он прочитает ID из файла.
+
+---
+
+#### B2 — всё раздельно: каждый скрипт по очереди, ID в JMeter вручную
+
+Используйте, если хотите полностью контролировать каждый вызов (или отлаживать по одному шагу).
+
+**Шаг 0 (опционально)**  
+`python init_influxdb.py influx_config_localhost.json`
+
+**Шаг 1 — только разбор JMX в профиль**  
+
+```text
+python parse_jmx_profile.py SimpleLoadTest.jmx
+```
+
+Результат: файл **`SimpleLoadTest.profile.json`** (имя = имя JMX с суффиксом `.profile.json`). Учитывается **`sampler_filter.json`** рядом со скриптом.
+
+**Шаг 2 — ID прогона и файл `test_run_id.txt` (вручную)**  
+Придумайте уникальный ID, например `test_20260411_153045`, и сохраните его **одной строкой** в файле **`test_run_id.txt`** в папке репозитория (удобно для контроля и для `jmeter_load_pipeline report`, если позже им воспользуетесь).
+
+**Шаг 3 — отправка профиля в Influx**  
+
+```text
+python send_profile_to_influx.py SimpleLoadTest.profile.json test_20260411_153045 influx_config_localhost.json
+```
+
+Аргументы по порядку: **файл профиля**, **`test_run`**, **JSON-конфиг Influx**. Второй аргумент должен **совпадать** с тем, что в `test_run_id.txt` (если используете оба).
+
+**Шаг 4 — подстановка `test_run` в JMeter (вручную)**  
+Откройте **`SimpleLoadTest.jmx`** в JMeter: **Test Plan** → **User Defined Variables** → переменная **`test_run`** = **тот же** ID (например `test_20260411_153045`). Сохраните JMX.  
+Иначе StageTracker и отчёт не сойдутся с данными в Influx.
+
+**Шаг 5 — нагрузка в JMeter (только вы)**  
+Запуск теста; проверки те же: StageTracker на **Test Plan**, Backend Listener.
+
+**Шаг 6 — отчёт**  
+
+```text
+python check_load_profile.py test_20260411_153045 influx_config_localhost.json
+```
+
+Первый аргумент — снова **тот же** `test_run`. Файлы отчёта — как в B1.
+
+*Альтернатива:* если **`test_run_id.txt`** содержит тот же ID и вы его не меняли — сработает  
+`python jmeter_load_pipeline.py report --config influx_config_localhost.json`.
 
 ---
 
