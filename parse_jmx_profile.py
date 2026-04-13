@@ -4,6 +4,12 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from utg_schedule import (
+    business_stages_from_utg_rows,
+    legacy_naive_stages_from_rows,
+    parse_utg_rows_from_element,
+)
+
 
 def load_sampler_filter_config(config_path: Optional[Path] = None) -> List[str]:
     """
@@ -63,51 +69,37 @@ def get_first_child_text(elem: ET.Element, tag_name: str) -> Optional[str]:
 
 def parse_ultimatethreadgroup(utg_elem: ET.Element) -> Dict[str, Any]:
     """
-    Extract stages (only enabled UTG).
+    Ultimate Thread Group → ступени профиля.
 
-    Для каждой строки Ultimate Thread Group (threads, init_delay, ramp_up, hold, ramp_down):
-    - plateau_start_s = init_delay + ramp_up — начало устойчивого плато (после ramp-up);
-    - plateau_end_s = plateau_start_s + hold — конец плато; длительность сравнения = только hold.
-    Промежутки ramp-up/ramp-down и «стартап» между ступенями в [plateau_start_s, plateau_end_s) не входят:
-    отчёт и StageTracker сравнивают метрики по чистому плато.
-    Ступени нумеруются с 1 (первая строка UTG → stage_idx=1).
+    По умолчанию ступени выводятся симуляцией расписания (сумма «добавляемых» потоков по строкам):
+    интервалы, где суммарное число потоков стабильно и нет ramp (см. utg_schedule.py).
+    Поля plateau_* — «чистое» горизонтальное плато на графике; threads — суммарно для TG.
+
+    Если симуляция не дала ни одной ступени, используется запасной вариант: одна строка UTG = одна ступень
+    (старое правило; может расходиться с графиком при наложении строк).
     """
     utg_name = utg_elem.attrib.get("testname", "")
-    data_root = utg_elem.find(".//collectionProp[@name='ultimatethreadgroupdata']")
-    stages: List[Dict[str, Any]] = []
+    raw_rows = parse_utg_rows_from_element(utg_elem)
+    if not raw_rows:
+        return {
+            "name": utg_name,
+            "stages": [],
+            "utg_raw_rows": [],
+            "utg_schedule_mode": "empty",
+        }
 
-    if data_root is not None:
-        for idx, row in enumerate(data_root.findall("collectionProp")):
-            # Order of stringProp values is positional: threads, init_delay, ramp_up, hold, ramp_down
-            values = [sp.text or "" for sp in row.findall("stringProp")]
-            if len(values) < 5:
-                # Skip malformed rows
-                continue
-            try:
-                threads = int(values[0])
-                init_delay = int(values[1])
-                ramp_up = int(values[2])
-                hold = int(values[3])
-                ramp_down = int(values[4])
-            except ValueError:
-                continue
+    stages, echo = business_stages_from_utg_rows(raw_rows)
+    mode = "business_plateau_simulation"
+    if not stages:
+        stages = legacy_naive_stages_from_rows(raw_rows)
+        mode = "legacy_row_per_stage_fallback"
 
-            plateau_start = init_delay + ramp_up
-            plateau_end = plateau_start + hold
-            stages.append(
-                {
-                    "stage_idx": idx + 1,
-                    "threads": threads,
-                    "init_delay_s": init_delay,
-                    "ramp_up_s": ramp_up,
-                    "hold_s": hold,
-                    "ramp_down_s": ramp_down,
-                    "plateau_start_s": plateau_start,
-                    "plateau_end_s": plateau_end,
-                }
-            )
-
-    return {"name": utg_name, "stages": stages}
+    return {
+        "name": utg_name,
+        "stages": stages,
+        "utg_raw_rows": echo,
+        "utg_schedule_mode": mode,
+    }
 
 
 def find_first_ctt_throughput(hash_tree: ET.Element) -> Optional[float]:

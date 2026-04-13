@@ -39,7 +39,7 @@ Use your own JMX and JSON instead of the sample names if needed.
 
 The script **runs these steps for you** (it calls other `.py` files in the repo in order):
 
-1. Parse JMX → **`parse_jmx_profile.py`** → **`SimpleLoadTest.profile.json`** next to the plan.
+1. Parse JMX → **`parse_jmx_profile.py`** → **`SimpleLoadTest.profile.json`** next to the plan. For **Ultimate Thread Group**, profile stages are built by **schedule simulation** (sum of per-row added threads; intervals where load is flat and not ramping) so plateau windows match horizontal segments on the TG chart; the JSON includes `utg_schedule_mode`. If simulation yields no stages, the fallback is one UTG row = one stage.
 2. Generate a new **`test_run`** id (e.g. `test_20260415_143022`) → write it to **`test_run_id.txt`** (single line).
 3. Send profile to Influx → **`send_profile_to_influx.py`** (uses the same JSON from `--config`).
 4. Write the same **`test_run`** into **User Defined Variables** in your **JMX** — the `test_run` variable is updated on disk; **you do not need to paste the id by hand** if you open that same plan file.
@@ -161,6 +161,46 @@ First argument is again the same **`test_run`**. Output files same as B1.
 
 ---
 
+## How the check works on GitHub: plateaus vs ramps
+
+This section explains what the **`check_load_profile`** report measures and why a “stage” duration in HTML **does not have to match** the **Hold** column of a single Ultimate Thread Group row.
+
+### 1. Ultimate Thread Group with multiple rows
+
+In a typical “staircase” plan, each UTG row **adds** threads on top of those already running. Load over time is the **sum** of all rows (see **`utg_schedule.py`**). A **business stage** in the profile is an interval where the **total** active thread count is **flat** (no ramp on the aggregate), not “one table row = one stage”.
+
+### 2. Plateau window `[plateau_start_s, plateau_end_s)`
+
+For each stage, `*.profile.json` defines a half-open time window **in seconds from test start**:
+
+- **Start** — after ramp-up to a **flat** segment at that total thread count.
+- **End** — **before** the next change in total load (e.g. before the next row’s ramp-up starts). The report uses **`[start, end)`** — the right bound is **exclusive**.
+
+**Ramp-up / ramp-down between stages are not inside that window.** For example, a 20 s ramp to the next wave is a separate slice; it is neither the previous plateau nor the next plateau.
+
+### 3. What `check_load_profile.py` computes inside the plateau
+
+For each thread group and each stage, using Influx (`jmeter` measurement, tags such as `test_run`, `transaction` / sampler name) **only over that time slice**:
+
+| Metric | Meaning |
+|--------|--------|
+| **Target RPS** | From JMX: `(CTT in RPM × threads in this TG) / 60` — expected **for this TG**. |
+| **Actual RPS** | `successful requests (statut = 'ok') / plateau duration in seconds`. Errors and non-ok are **not** in the numerator. |
+| **Deviation %** | `|actual − target| / target × 100%` **per TG**; PASS/FAIL threshold in the report is typically 10%. |
+| **Expected requests** | `target RPS × (plateau_end_s − plateau_start_s)` — plateau only, no ramps between stages. |
+
+Plateau duration is **`end − start`**, not necessarily the raw **Hold** of one UTG row when several rows overlap.
+
+### 4. Stage events in Influx
+
+`StageTracker.groovy` writes auxiliary events (e.g. stage changes) for time alignment; the report may use them to refine **test start**. **Plateau boundaries used for RPS** come from the **parsed profile** (JMX + UTG simulation), not from eyeballing a chart.
+
+### 5. What not to commit
+
+Keep real URLs, Influx passwords, and tokens in local files only (e.g. a copy of `influx_config.example.json` named like `influx_config.local.json` and listed in `.gitignore`). The public repo should only contain **`influx_config.example.json`** and the sample **`influx_config_localhost.json`** for local dev.
+
+---
+
 ## Repository layout
 
 | File | Purpose |
@@ -168,6 +208,7 @@ First argument is again the same **`test_run`**. Output files same as B1.
 | `jmeter_load_pipeline.py` | Entry point: `prepare` / `report` |
 | `prepare_test.py` | Run preparation + `--patch-jmx` |
 | `parse_jmx_profile.py` | JMX → `*.profile.json` |
+| `utg_schedule.py` | UTG schedule simulation: flat total-thread segments |
 | `send_profile_to_influx.py` | Send profile to Influx |
 | `check_load_profile.py` | HTML/JSON report for `test_run` |
 | `init_influxdb.py` | One-time InfluxDB 1.x DB/user setup |
