@@ -31,5 +31,5 @@ influx_config.local.json
 influx_config.work.json
 influx_config_private.json
 
-# Локальные данные InfluxDB (influxdb_local_dev.conf)
+# Локальные данные InfluxDB (если поднимаете influxd с data/meta в каталоге проекта)
 .influx_local/
