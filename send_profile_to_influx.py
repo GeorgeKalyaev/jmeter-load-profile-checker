@@ -9,8 +9,9 @@ Pre-run script: отправляет профиль нагрузки в InfluxDB
 """
 import json
 import sys
+import time
+import urllib.error
 import urllib.request
-import urllib.parse
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -61,37 +62,66 @@ def send_to_influx(
         req.add_header("Authorization", f"Basic {credentials}")
     
     try:
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=30) as response:
             return response.status == 204
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace") if e.fp else ""
+        print(f"Ошибка отправки в InfluxDB: HTTP {e.code}: {e.reason}")
+        if body.strip():
+            print(f"Ответ сервера: {body.strip()}")
+        return False
     except Exception as e:
         print(f"Ошибка отправки в InfluxDB: {e}")
         return False
 
 
 def escape_influx_tag_value(value: str) -> str:
-    """Экранирует специальные символы в значениях тегов InfluxDB."""
-    # В InfluxDB теги не могут содержать запятые, пробелы, знаки равенства
-    # Заменяем пробелы на подчеркивания, удаляем запятые и знаки равенства
-    return value.replace(",", "_").replace(" ", "_").replace("=", "_")
+    """Нормализует значение тега для InfluxDB Line Protocol (теги без запятых/пробелов/=)."""
+    s = str(value)
+    for ch in ", =":
+        s = s.replace(ch, "_")
+    # Частые символы из URL/имён сэмплеров, недопустимые или неудобные в тегах
+    for ch in "/?&%:#|*\"'\\<>[]{}":
+        s = s.replace(ch, "_")
+    s = s.replace(".", "_")
+    while "__" in s:
+        s = s.replace("__", "_")
+    return s.strip("_") or "empty"
+
+
+def escape_influx_field_string(value: str) -> str:
+    """Экранирование строкового поля по Line Protocol InfluxDB 1.x."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def format_field_pair(key: str, value: Any) -> str:
+    """Одно поле: целые — с суффиксом i, float — как есть, строки — в кавычках с escape."""
+    if isinstance(value, bool):
+        return f"{key}={'true' if value else 'false'}"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f"{key}={value}i"
+    if isinstance(value, float):
+        return f"{key}={value}"
+    return f'{key}="{escape_influx_field_string(str(value))}"'
+
 
 def format_influx_line(
     measurement: str,
     tags: Dict[str, str],
     fields: Dict[str, Any],
-    timestamp_ns: int = None,
+    timestamp_ns: Optional[int] = None,
 ) -> str:
-    """Форматирует строку в формате InfluxDB Line Protocol."""
-    tag_str = ",".join(f"{k}={escape_influx_tag_value(str(v))}" for k, v in sorted(tags.items()) if v)
-    field_str = ",".join(
-        f"{k}={v}" if isinstance(v, (int, float)) else f'{k}="{v}"'
-        for k, v in sorted(fields.items())
+    """Форматирует строку в формате InfluxDB Line Protocol (совместимо с InfluxDB 1.x)."""
+    tag_str = ",".join(
+        f"{k}={escape_influx_tag_value(str(v))}" for k, v in sorted(tags.items()) if v is not None and str(v) != ""
     )
+    field_str = ",".join(format_field_pair(k, v) for k, v in sorted(fields.items()))
     
     line = f"{measurement}"
     if tag_str:
         line += f",{tag_str}"
     line += f" {field_str}"
-    if timestamp_ns:
+    if timestamp_ns is not None:
         line += f" {timestamp_ns}"
     
     return line
@@ -103,8 +133,10 @@ def send_profile(profile_path: Path, test_run_id: str, influx_url: str, db_name:
         profile = json.load(f)
     
     data_points: List[str] = []
-    timestamp_ns = int(__import__("time").time() * 1_000_000_000)  # nanoseconds
-    
+    # Базовое время «относительно старта сценария»: метка времени = plateau_start_s (сек) → нс.
+    # Так у каждой ступени уникальный timestamp в пределах серии и нет перезаписи точек одним wall-clock.
+    seq = 0
+
     # Отправляем информацию о каждой ступени каждой thread group
     for tg in profile.get("thread_groups", []):
         tg_name = tg.get("name", "")
@@ -130,57 +162,58 @@ def send_profile(profile_path: Path, test_run_id: str, influx_url: str, db_name:
                 target_rps = 0.0
             
             # Отправляем информацию о плато (hold период)
-            # Добавляем stage_idx в теги, чтобы каждая ступень была отдельной серией в InfluxDB
+            # stage_idx в тегах — отдельная серия на ступень
             fields = {
-                "plateau_start_s": stage["plateau_start_s"],
-                "plateau_end_s": stage["plateau_end_s"],
-                "hold_s": stage["hold_s"],
-                "threads": threads,
-                "target_rps": target_rps,  # Теперь правильный target_rps для этой ступени
+                "plateau_start_s": int(stage["plateau_start_s"]),
+                "plateau_end_s": int(stage["plateau_end_s"]),
+                "hold_s": int(stage["hold_s"]),
+                "threads": int(threads),
+                "target_rps": float(target_rps),
             }
             
             # Добавляем список транзакций в поля (только для первой ступени, чтобы не дублировать)
-            if stage["stage_idx"] == 0 and transaction_names_str:
+            if stage.get("stage_idx", 1) == 1 and transaction_names_str:
                 fields["transaction_names"] = transaction_names_str
+            
+            plateau_start_s = int(stage["plateau_start_s"])
+            # Если два разных TG имеют одинаковый plateau_start_s — тег thread_group различает серии.
+            # На всякий случай добавляем наносекундный инкремент при коллизии времени в одной отправке.
+            timestamp_ns = plateau_start_s * 1_000_000_000 + seq
+            seq += 1
             
             line = format_influx_line(
                 measurement="load_profile",
                 tags={
                     "test_run": test_run_id,
                     "thread_group": tg_name,
-                    "stage_idx": str(stage["stage_idx"]),  # Добавляем stage_idx в теги
+                    "stage_idx": str(stage["stage_idx"]),
                 },
                 fields=fields,
                 timestamp_ns=timestamp_ns,
             )
             data_points.append(line)
     
-    # Отправляем список samplers с бизнес-критериями (если нужно)
-    for sampler in profile.get("samplers", []):
-        # Поддерживаем бизнес-критерии: max_response_time_ms (максимальное время отклика в миллисекундах)
-        # Критерий можно задать в profile.json: "max_response_time_ms": 10000
+    # Список samplers: только тип и SLA; имя — в теге (нормализованное). path_or_query не отправляем (тела/URL в Influx не нужны).
+    sampler_ts_base = int(time.time() * 1_000_000_000)
+    for idx, sampler in enumerate(profile.get("samplers", [])):
         max_response_time_ms = sampler.get("max_response_time_ms")
-        
-        fields = {
-            "sampler_name": sampler.get("name", ""),
+        raw_name = sampler.get("name", "") or "unknown"
+        tag_sampler = escape_influx_tag_value(raw_name)
+
+        fields: Dict[str, Any] = {
             "sampler_type": sampler.get("type", ""),
-            "path_or_query": sampler.get("path_or_query", ""),
         }
-        
-        # Добавляем критерий, если он задан
         if max_response_time_ms is not None:
             fields["max_response_time_ms"] = float(max_response_time_ms)
-        
-        # ВАЖНО: Добавляем sampler_name в теги, чтобы каждый sampler был отдельной серией в InfluxDB
-        # Иначе все samplers будут перезаписывать друг друга из-за одинакового timestamp
+
         line = format_influx_line(
             measurement="load_profile_samplers",
             tags={
                 "test_run": test_run_id,
-                "sampler_name": sampler.get("name", ""),  # Добавляем sampler_name в теги
+                "sampler_name": tag_sampler,
             },
             fields=fields,
-            timestamp_ns=timestamp_ns,
+            timestamp_ns=sampler_ts_base + idx,
         )
         data_points.append(line)
     

@@ -30,3 +30,6 @@ load_profile_check_*.json
 influx_config.local.json
 influx_config.work.json
 influx_config_private.json
+
+# Локальные данные InfluxDB (influxdb_local_dev.conf)
+.influx_local/

@@ -71,6 +71,24 @@ def load_sampler_filter_config(config_path: Optional[Path] = None) -> List[str]:
     return default_prefixes
 
 
+def _influx_quoted_tag_value(s: str) -> str:
+    """Экранирование значения для InfluxQL в одинарных кавычках."""
+    return s.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _jmeter_transaction_filter_from_profile(transaction_names: List[str]) -> str:
+    """
+    Условие WHERE по полю transaction для поиска точек jmeter.
+    Должно быть согласовано с get_actual_metrics: только /^_UC.*/ часто не находит
+    первые сэмплы (они могут быть HTTP Request … или UC_* без ведущего подчёркивания).
+    """
+    names = [n for n in (transaction_names or []) if n]
+    if not names:
+        return '"transaction" =~ /^_UC.*/'
+    parts = [f'"transaction" = \'{_influx_quoted_tag_value(n)}\'' for n in names]
+    return "(" + " OR ".join(parts) + ")"
+
+
 def is_sampler_allowed(sampler_name: str, allowed_prefixes: List[str]) -> bool:
     """
     Проверяет, должен ли Sampler учитываться на основе его имени.
@@ -899,8 +917,9 @@ def check_profile_compliance(
     all_transaction_names = list(set(all_transaction_names))  # Убираем дубликаты
     
     # Определяем время старта теста
-    # ВАЖНО: События load_stage_change отправляются когда потоки начинают работать,
-    # но данные в jmeter начинают записываться раньше (когда Backend Listener начинает отправлять метрики).
+    # ВАЖНО: События load_stage_change приходят при входе в окно плато ступени (после ramp-up по профилю);
+    # сами метрики jmeter могут появляться раньше (Backend Listener). Сравнение RPS/RT в отчёте — только
+    # по интервалу [plateau_start_s, plateau_end_s), т.е. по чистому hold, без ramp-up/ramp-down между ступенями.
     # Поэтому используем самое раннее время из данных jmeter в диапазоне вокруг первого события.
     test_start_time_ns = None
     
@@ -930,24 +949,26 @@ def check_profile_compliance(
                 search_start_ns = earliest_event_time_ns - (30 * 24 * 3600 * 1_000_000_000)  # 30 дней назад
                 search_end_ns = earliest_event_time_ns + (3600 * 1_000_000_000)  # 1 час вперед
                 
-                # Используем транзакции, которые относятся к этому тесту (_UC_*), чтобы найти самое раннее время данных
-                # Это гарантирует, что мы найдем данные именно для этого теста, а не для другого
+                # Имена transaction — как в профиле (HTTP Request …, _UC_*, TG name и т.д.); узкий /^_UC.*/
+                # часто не совпадает с первыми точками в Influx → тогда «не нашли данные» при живых метриках.
+                tx_filter = _jmeter_transaction_filter_from_profile(all_transaction_names)
                 query_earliest = f'''
                     SELECT time
                     FROM "jmeter"
                     WHERE time >= {search_start_ns} AND time <= {search_end_ns}
                     AND "statut" = 'ok'
-                    AND "transaction" =~ /^_UC.*/
+                    AND {tx_filter}
                     ORDER BY time ASC
                     LIMIT 1
                 '''
                 series_earliest = query_influx(query_earliest, influx_url, db_name, username, password)
                 
-                # Отладочная информация
                 if not series_earliest or len(series_earliest) == 0:
-                    print(f"[DEBUG] Запрос не нашел данные в диапазоне {search_start_ns} - {search_end_ns}")
-                else:
-                    print(f"[DEBUG] Запрос нашел данные: {len(series_earliest)} серий")
+                    print(
+                        "[INFO] Не удалось найти самую раннюю точку jmeter по именам транзакций из профиля "
+                        f"в окне вокруг первого события ступени; используется время старта из load_stage_change. "
+                        f"(диапазон поиска: {search_start_ns} … {search_end_ns})"
+                    )
                 
                 if series_earliest and len(series_earliest) > 0:
                     values_earliest = series_earliest[0].get("values", [])
@@ -1087,7 +1108,7 @@ def check_profile_compliance(
             target_rps = stage["target_rps"]
             threads = stage["threads"]
             
-            print(f"Проверка {tg_name}, ступень {stage_idx} (t={plateau_start}-{plateau_end}s)...")
+            print(f"Проверка {tg_name}, ступень {stage_idx} (плато t={plateau_start}-{plateau_end}s, без ramp)...")
             
             # Получаем фактические метрики за период плато
             # Передаем имя Thread Group и список транзакций для подсчета метрик отдельно для каждой группы
@@ -1280,7 +1301,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             <th title="Общее количество успешных запросов за период плато">Запросов<br/>(успешных)</th>
             <th title="Общее количество запросов с ошибками за период плато">Запросов<br/>(с ошибками)</th>
             <th title="Процент ошибок = (ошибки / (успешные + ошибки)) × 100%">% Ошибок</th>
-            <th title="Ожидаемое количество запросов = Целевой RPS ЭТОЙ Thread Group × Длительность плато (plateau_end_s - plateau_start_s)">Ожидаемое<br/>запросов</th>
+            <th title="Ожидаемое число запросов = целевой RPS этой Thread Group × длительность только плато (hold): plateau_end_s − plateau_start_s; ramp-up/ramp-down между ступенями не входят">Ожидаемое<br/>запросов</th>
             <th title="Фактическое количество запросов = Успешные + Ошибки">Фактическое<br/>запросов</th>
             <th title="Среднее время отклика всех запросов за плато (мс)">Avg RT<br/>(мс)</th>
             <th title="95-й перцентиль времени отклика (мс)">P95 RT<br/>(мс)</th>

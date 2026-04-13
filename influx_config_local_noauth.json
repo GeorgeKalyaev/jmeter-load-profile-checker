@@ -1,0 +1,8 @@
+{
+  "influx_url": "http://127.0.0.1:8086",
+  "influx_db": "jmeter",
+  "influx_user": "",
+  "influx_pass": "",
+  "aggregation_interval": 5.0,
+  "_comment": "Локальный InfluxDB 1.x без HTTP auth (типичный docker influxdb:1.8 по умолчанию). Для JMeter StageTracker и продакшена используйте конфиг с логином/паролем."
+}
