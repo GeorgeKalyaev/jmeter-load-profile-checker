@@ -62,7 +62,16 @@ def get_first_child_text(elem: ET.Element, tag_name: str) -> Optional[str]:
 
 
 def parse_ultimatethreadgroup(utg_elem: ET.Element) -> Dict[str, Any]:
-    """Extract stages (only enabled UTG)."""
+    """
+    Extract stages (only enabled UTG).
+
+    Для каждой строки Ultimate Thread Group (threads, init_delay, ramp_up, hold, ramp_down):
+    - plateau_start_s = init_delay + ramp_up — начало устойчивого плато (после ramp-up);
+    - plateau_end_s = plateau_start_s + hold — конец плато; длительность сравнения = только hold.
+    Промежутки ramp-up/ramp-down и «стартап» между ступенями в [plateau_start_s, plateau_end_s) не входят:
+    отчёт и StageTracker сравнивают метрики по чистому плато.
+    Ступени нумеруются с 1 (первая строка UTG → stage_idx=1).
+    """
     utg_name = utg_elem.attrib.get("testname", "")
     data_root = utg_elem.find(".//collectionProp[@name='ultimatethreadgroupdata']")
     stages: List[Dict[str, Any]] = []
@@ -87,7 +96,7 @@ def parse_ultimatethreadgroup(utg_elem: ET.Element) -> Dict[str, Any]:
             plateau_end = plateau_start + hold
             stages.append(
                 {
-                    "stage_idx": idx,
+                    "stage_idx": idx + 1,
                     "threads": threads,
                     "init_delay_s": init_delay,
                     "ramp_up_s": ramp_up,

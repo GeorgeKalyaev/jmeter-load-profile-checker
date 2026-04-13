@@ -107,7 +107,7 @@ for (stage in stages) {
 
 // Если нашли текущую ступень и она отличается от последней известной, отправляем событие
 if (currentStage != null) {
-    int currentStageIdx = currentStage.stage_idx ?: 0
+    int currentStageIdx = currentStage.stage_idx ?: 1
     
     // Проверяем, изменилась ли ступень
     if (currentStageIdx != lastKnownStageIdx) {
@@ -176,6 +176,15 @@ def loadProfileFromInflux(String testRun, String url, String db, String user, St
         response.results[0].series.each { series ->
             def tags = series.tags
             String tgName = tags.thread_group
+            // stage_idx в Influx только в тегах (send_profile_to_influx.py), в полях точки его нет — иначе у всех ступеней был бы один и тот же индекс и смена ступени не логировалась бы
+            int stageIdxFromTag = 1
+            if (tags && tags.stage_idx != null) {
+                try {
+                    stageIdxFromTag = tags.stage_idx.toString().toInteger()
+                } catch (Exception ignored) {
+                    stageIdxFromTag = 1
+                }
+            }
             if (!tgMap[tgName]) {
                 tgMap[tgName] = [name: tgName, stages: [], target_rps: null]
             }
@@ -191,7 +200,7 @@ def loadProfileFromInflux(String testRun, String url, String db, String user, St
                 
                 // Извлекаем данные ступени
                 def stage = [
-                    stage_idx: (int)(rowMap.stage_idx ?: 0),
+                    stage_idx: rowMap.stage_idx != null ? (int)(rowMap.stage_idx) : stageIdxFromTag,
                     threads: (int)(rowMap.threads ?: 0),
                     plateau_start_s: (int)(rowMap.plateau_start_s ?: 0),
                     plateau_end_s: (int)(rowMap.plateau_end_s ?: 0),
@@ -234,11 +243,12 @@ def sendStageEvent(String testRun, String tgName, def stage, def targetRps, Stri
         long timestampNs = System.currentTimeMillis() * 1_000_000  // миллисекунды * 1_000_000 = микросекунды (для InfluxDB 1.x это корректно)
         
         // Формируем строку в формате InfluxDB Line Protocol
+        // Теги: пробел → "\ ", запятая → "\,". Литерал "\ " в исходнике — синтаксическая ошибка; "\\ " при копировании в JMX иногда теряет слэш. Используем \u005c (= \).
         String line = String.format(
             "load_stage_change,test_run=%s,thread_group=%s stage_idx=%d,threads=%d,target_rps=%.2f,plateau_start_s=%d,hold_s=%d %d",
-            testRun.replace(" ", "\\ "),
-            tgName.replace(" ", "\\ ").replace(",", "\\,"),
-            stage.stage_idx ?: 0,
+            testRun.replace(" ", "\u005c "),
+            tgName.replace(" ", "\u005c ").replace(",", "\u005c,"),
+            stage.stage_idx ?: 1,
             stage.threads ?: 0,
             (targetRps ?: 0.0) as double,
             stage.plateau_start_s ?: 0,
