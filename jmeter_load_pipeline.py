@@ -21,10 +21,22 @@ import argparse
 import json
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
-from prepare_test import patch_test_run_in_jmx
+
+def patch_test_run_in_jmx(jmx_path: Path, test_run_id: str) -> None:
+    """Записать test_run в User Defined Variables плана JMX."""
+    tree = ET.parse(jmx_path)
+    root = tree.getroot()
+    for elem in root.iter("elementProp"):
+        if elem.get("name") == "test_run":
+            for sp in elem.findall("stringProp"):
+                if sp.get("name") == "Argument.value":
+                    sp.text = test_run_id
+                    break
+    tree.write(jmx_path, encoding="UTF-8", xml_declaration=True)
 
 
 def _script_dir() -> Path:
