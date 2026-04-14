@@ -12,6 +12,23 @@ Use the **same** URL and credentials in the JMeter **Backend Listener** (and in 
 
 ---
 
+## JMX layout and naming conventions
+
+So **`parse_jmx_profile`**, Influx, and **`check_load_profile`** line up without hand-edits:
+
+1. **`test_run`** — under **Test Plan → User Defined Variables**. After **`jmeter_load_pipeline.py prepare`** it is written into the JMX file; reopen the plan in the GUI if you edited the file externally.
+
+2. **Thread Group `testname`** (e.g. `UC_01_Group_List`) — the logical group name in the report. Inside that TG, preferably wrap the flow in a **Transaction Controller** named **underscore + same name as the TG**:  
+   TG `UC_01_Group_List` → Transaction Controller **`_UC_01_Group_List`**.  
+   The Backend Listener often stores that label in the Influx tag **`transaction`**; the leading **`_`** is a common JMeter convention for the *transaction* sample vs individual HTTP samples.  
+   If there is **no** Transaction Controller, the parser still adds both the TG name and **`_{TG_name}`** to the profile for `jmeter` queries (back-compat).
+
+3. **HTTP Sampler names** — must start with one of the prefixes in **`sampler_filter.json`** (default **`HTTP`**, e.g. **`HTTP Request …`**). Otherwise the sampler is skipped in `*.profile.json` and in the report SLA table. For JDBC/SOAP/etc., add prefixes to **`allowed_sampler_prefixes`** in that JSON.
+
+4. **StageTracker.groovy** — at **Test Plan** level; **Backend Listener** — same Influx as in your config JSON.
+
+---
+
 ## Options A and B: what is the difference
 
 **Common:** no script **starts JMeter**. InfluxDB 1.x, database, and user are **your** ops concern (official Influx docs); this repo only ships JSON for connections.

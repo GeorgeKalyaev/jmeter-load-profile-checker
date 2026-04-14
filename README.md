@@ -12,6 +12,23 @@
 
 ---
 
+## Структура JMX и соглашения по именам
+
+Чтобы **`parse_jmx_profile`**, Influx и **`check_load_profile`** сходились без ручной правки:
+
+1. **`test_run`** — в **Test Plan → User Defined Variables**. После **`jmeter_load_pipeline.py prepare`** значение пишется в файл JMX автоматически; в GUI откройте план заново, если правили его снаружи.
+
+2. **Имя Thread Group** (`testname`, например `UC_01_Group_List`) — логическое имя группы в отчёте. Внутри этой TG по возможности оберните сценарий в **Transaction Controller**, имя которого = **подчёркивание + то же имя, что у TG**:  
+   TG `UC_01_Group_List` → Transaction Controller **`_UC_01_Group_List`**.  
+   В Influx у Backend Listener тег **`transaction`** часто совпадает с именем транзакции; ведущий **`_`** — типичное соглашение JMeter для «сэмпла транзакции», чтобы отличать от отдельных HTTP-запросов.  
+   Если Transaction Controller **нет**, парсер для совместимости всё равно добавит в профиль и имя TG, и вариант **`_{имя_TG}`** для запросов к `jmeter`.
+
+3. **Имена HTTP Sampler** — должны начинаться с одного из префиксов из **`sampler_filter.json`** (по умолчанию только **`HTTP`**, например **`HTTP Request …`**). Иначе сэмплер не попадёт в `*.profile.json` и в сводку по SLA в отчёте. Другие типы (JDBC и т.д.) — добавьте префикс в **`allowed_sampler_prefixes`** в том же JSON.
+
+4. **StageTracker.groovy** — на уровне **Test Plan**; **Backend Listener** — тот же Influx, что в вашем конфиге.
+
+---
+
 ## Вариант A и B: в чём разница
 
 **Общее:** ни один скрипт **не запускает JMeter**. InfluxDB 1.x, база и пользователь — **ваша** инфраструктура (по документации Influx); в репозитории только JSON для подключения.
