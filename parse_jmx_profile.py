@@ -158,19 +158,12 @@ def collect_samplers(root: ET.Element, allowed_prefixes: List[str] = None) -> Li
         # Учитываем только Samplers, которые начинаются с одного из разрешенных префиксов
         if not is_sampler_allowed(name, allowed_prefixes):
             continue
-        
-        path = get_first_child_text(elem, "stringProp")
-        # Try to find specific path properties
-        for sp in elem.findall("stringProp"):
-            prop_name = sp.attrib.get("name", "")
-            if prop_name in ("HTTPSampler.path", "query", "JDBCSampler.query"):
-                path = sp.text
-                break
 
+        # Путь/тело запроса в профиль не включаем: для отчёта и Influx достаточно name/type/SLA;
+        # в path/query часто бывают большие или чувствительные данные.
         sampler_info = {
             "name": name,
             "type": sampler_type,
-            "path_or_query": path or "",
             "max_response_time_ms": 10000,  # Значение по умолчанию: 10 секунд
         }
         samplers.append(sampler_info)

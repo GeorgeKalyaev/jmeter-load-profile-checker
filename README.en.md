@@ -105,6 +105,7 @@ python jmeter_load_pipeline.py report --config influx_config_localhost.json
 
 ## Things to watch
 
+- If Influx returns **`partial write: points beyond retention policy dropped`** on **`send_profile`**, the server likely enforces retention: older script versions used scenario-second timestamps (epoch 1970). Current **`send_profile_to_influx.py`** uses timestamps near “now”.
 - The same **`test_run`** when sending the profile, in **User Defined Variables** in the JMX, and when generating the report.
 - `aggregation_interval` in JSON should match the **Sending interval** of the **Backend Listener** in JMeter and how you compute RPS in Grafana (e.g. `sum("count") / N` → use `N`). In `SimpleLoadTest.jmx` the interval is not set explicitly — the Influx Backend Listener often defaults to **5 s**; `influx_config_localhost.json` uses **`5.0`**.
 - For local Influx on `localhost`, you can use `influx_config_localhost.json` (default user/password are for dev only).
