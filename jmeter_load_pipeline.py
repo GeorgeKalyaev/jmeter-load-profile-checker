@@ -6,7 +6,7 @@
   1) Подготовка (JMX рядом со скриптом или путь явно):
        python jmeter_load_pipeline.py prepare [plan.jmx] [--config influx_config.json]
 
-     По шагам: парсинг JMX -> JSON профиля -> test_run -> отправка в Influx -> запись test_run в JMX.
+     По шагам: парсинг JMX -> JSON профиля -> test_run -> запись test_run в JMX -> отправка в Influx.
 
   2) Запустите нагрузочный тест в JMeter вручную.
 
@@ -114,8 +114,16 @@ def cmd_prepare(jmx: Path, config: Path, script_dir: Path) -> None:
     print("=" * 60)
     sys.stdout.flush()
 
+    print()
+    print("=" * 60)
+    print(f"[3/4] Write test_run into JMX User Defined Variables\n      {jmx.name}")
+    print("=" * 60)
+    sys.stdout.flush()
+    patch_test_run_in_jmx(jmx, test_run_id)
+    print(f"[OK] Variable test_run = {test_run_id}")
+
     _run_step(
-        "[3/4] Send profile to InfluxDB (load_profile, load_profile_samplers, ...)",
+        "[4/4] Send profile to InfluxDB (load_profile, load_profile_samplers, ...)",
         [
             py,
             str(script_dir / "send_profile_to_influx.py"),
@@ -125,14 +133,6 @@ def cmd_prepare(jmx: Path, config: Path, script_dir: Path) -> None:
         ],
         script_dir,
     )
-
-    print()
-    print("=" * 60)
-    print(f"[4/4] Write test_run into JMX User Defined Variables\n      {jmx.name}")
-    print("=" * 60)
-    sys.stdout.flush()
-    patch_test_run_in_jmx(jmx, test_run_id)
-    print(f"[OK] Variable test_run = {test_run_id}")
 
     try:
         cfg = json.loads(config.read_text(encoding="utf-8"))

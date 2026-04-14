@@ -39,8 +39,8 @@ Runs, in order:
 
 1. **`parse_jmx_profile.py`** → **`SimpleLoadTest.profile.json`**. For UTG, stages from simulation (`utg_schedule.py`), field `utg_schedule_mode`; else fallback one UTG row = one stage.
 2. New **`test_run`** → **`test_run_id.txt`** (one line).
-3. **`send_profile_to_influx.py`** — profile to Influx (same JSON as `--config`).
-4. Write **`test_run`** into **User Defined Variables** in the JMX on disk — open that file in JMeter; no manual id entry.
+3. Write **`test_run`** into **User Defined Variables** in the JMX on disk — open that file in JMeter; no manual id entry.
+4. **`send_profile_to_influx.py`** — profile to Influx (same JSON as `--config`).
 
 **Step 2 — load test in JMeter (you only)**
 
