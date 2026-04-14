@@ -39,8 +39,8 @@ python jmeter_load_pipeline.py prepare SimpleLoadTest.jmx --config influx_config
 
 1. **`parse_jmx_profile.py`** → **`SimpleLoadTest.profile.json`**. Для UTG ступени из симуляции (`utg_schedule.py`), поле `utg_schedule_mode`; иначе запасной режим «одна строка UTG = одна ступень».
 2. Новый **`test_run`** → файл **`test_run_id.txt`** (одна строка).
-3. **`send_profile_to_influx.py`** — профиль в Influx (тот же JSON, что в `--config`).
-4. Запись **`test_run`** в **User Defined Variables** в JMX на диске — открываете этот же файл в JMeter, руками ID не вводите.
+3. Запись **`test_run`** в **User Defined Variables** в JMX на диске — открываете этот же файл в JMeter, руками ID не вводите.
+4. **`send_profile_to_influx.py`** — профиль в Influx (тот же JSON, что в `--config`).
 
 **Шаг 2 — нагрузочный тест в JMeter (только вы)**
 
