@@ -165,11 +165,13 @@ def send_profile(profile_path: Path, test_run_id: str, influx_url: str, db_name:
             
             # Отправляем информацию о плато (hold период)
             # stage_idx в тегах — отдельная серия на ступень
+            # Числа как float (не integer с суффиксом i): на многих стендах measurement load_profile
+            # уже создан с float-полями; иначе Influx 1.x: field type conflict dropped=...
             fields = {
-                "plateau_start_s": int(stage["plateau_start_s"]),
-                "plateau_end_s": int(stage["plateau_end_s"]),
-                "hold_s": int(stage["hold_s"]),
-                "threads": int(threads),
+                "plateau_start_s": float(stage["plateau_start_s"]),
+                "plateau_end_s": float(stage["plateau_end_s"]),
+                "hold_s": float(stage["hold_s"]),
+                "threads": float(threads),
                 "target_rps": float(target_rps),
             }
             
