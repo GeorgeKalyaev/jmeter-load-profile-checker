@@ -133,8 +133,10 @@ def send_profile(profile_path: Path, test_run_id: str, influx_url: str, db_name:
         profile = json.load(f)
     
     data_points: List[str] = []
-    # Базовое время «относительно старта сценария»: метка времени = plateau_start_s (сек) → нс.
-    # Так у каждой ступени уникальный timestamp в пределах серии и нет перезаписи точек одним wall-clock.
+    # Время точек — около «сейчас» (нс), с монотонным seq. Иначе plateau_start_s*1e9 даёт 1970 год и Influx 1.x
+    # с ограниченным retention возвращает: partial write: points beyond retention policy dropped=...
+    # Различие серий обеспечивают теги (test_run, thread_group, stage_idx); длительности плато — в полях.
+    batch_base_ns = int(time.time() * 1_000_000_000)
     seq = 0
 
     # Отправляем информацию о каждой ступени каждой thread group
@@ -175,10 +177,7 @@ def send_profile(profile_path: Path, test_run_id: str, influx_url: str, db_name:
             if stage.get("stage_idx", 1) == 1 and transaction_names_str:
                 fields["transaction_names"] = transaction_names_str
             
-            plateau_start_s = int(stage["plateau_start_s"])
-            # Если два разных TG имеют одинаковый plateau_start_s — тег thread_group различает серии.
-            # На всякий случай добавляем наносекундный инкремент при коллизии времени в одной отправке.
-            timestamp_ns = plateau_start_s * 1_000_000_000 + seq
+            timestamp_ns = batch_base_ns + seq
             seq += 1
             
             line = format_influx_line(
@@ -193,9 +192,8 @@ def send_profile(profile_path: Path, test_run_id: str, influx_url: str, db_name:
             )
             data_points.append(line)
     
-    # Список samplers: только тип и SLA; имя — в теге (нормализованное). path_or_query не отправляем (тела/URL в Influx не нужны).
-    sampler_ts_base = int(time.time() * 1_000_000_000)
-    for idx, sampler in enumerate(profile.get("samplers", [])):
+    # Список samplers: только тип и SLA; имя — в теге (нормализованное).
+    for sampler in profile.get("samplers", []):
         max_response_time_ms = sampler.get("max_response_time_ms")
         raw_name = sampler.get("name", "") or "unknown"
         tag_sampler = escape_influx_tag_value(raw_name)
@@ -213,9 +211,10 @@ def send_profile(profile_path: Path, test_run_id: str, influx_url: str, db_name:
                 "sampler_name": tag_sampler,
             },
             fields=fields,
-            timestamp_ns=sampler_ts_base + idx,
+            timestamp_ns=batch_base_ns + seq,
         )
         data_points.append(line)
+        seq += 1
     
     if not data_points:
         print("Нет данных для отправки")

@@ -105,6 +105,7 @@ python jmeter_load_pipeline.py report --config influx_config_localhost.json
 
 ## На что обратить внимание
 
+- Если Influx при **`send_profile`** отвечает **`partial write: points beyond retention policy dropped`**, на стенде обычно жёсткий retention: старые версии записывали метки времени как «секунды сценария» (1970 год). Актуальный **`send_profile_to_influx.py`** ставит точкам время около текущего момента.
 - Один и тот же **`test_run`** при отправке профиля, в **User Defined Variables** в JMX и при отчёте.
 - `aggregation_interval` в JSON должен совпадать с **Sending interval** у **Backend Listener** в JMeter и с тем, как вы считаете RPS в Grafana (например `sum("count") / N` → `N`). В `SimpleLoadTest.jmx` интервал в JMX не задан явно — у Influx Backend Listener обычно **5 с** по умолчанию; в `influx_config_localhost.json` стоит `5.0`.
 - Для локального Influx на `localhost` можно использовать `influx_config_localhost.json` (учётка/пароль по умолчанию только для dev).
