@@ -25,7 +25,17 @@ So **`parse_jmx_profile`**, Influx, and **`check_load_profile`** line up without
 
 3. **HTTP Sampler names** — must start with one of the prefixes in **`sampler_filter.json`** (default **`HTTP`**, e.g. **`HTTP Request …`**). Otherwise the sampler is skipped in `*.profile.json` and in the report SLA table. For JDBC/SOAP/etc., add prefixes to **`allowed_sampler_prefixes`** in that JSON.
 
-4. **StageTracker.groovy** — at **Test Plan** level; **Backend Listener** — same Influx as in your config JSON.
+4. **StageTracker.groovy** — at **Test Plan** level (script from this repo; the JSR223 file path must resolve). **Backend Listener** (InfluxDB Backend Listener) — same Influx (URL, DB, credentials) as in the Python JSON. The listener’s **`test_run`** tag must match the **`${test_run}`** UDV in the plan (`prepare` writes it into the JMX).
+
+5. **Ultimate Thread Group** — load stages in `*.profile.json` are collected **only** for **`kg.apc.jmeter.threads.UltimateThreadGroup`**. A plain **Thread Group** is **not** turned into profile stages by this parser (in `SimpleLoadTest.jmx` classic TGs are disabled). Use UTG for staircases; total-thread simulation lives in `utg_schedule.py`.
+
+6. **Constant Throughput Timer** — target RPS in the report is computed as **(RPM × threads at that stage) / 60**, aligned with a per-thread style CTT (see comments in `send_profile_to_influx.py`). If your CTT `calcMode` differs, the displayed target may not match reality until you adjust the formula or plan.
+
+7. **Several Transaction Controllers** in one TG — the parser collects **all** their names into `transaction_names`; the report builds the Influx filter from that list. Names must match what the Backend Listener actually writes into the **`transaction`** tag (often item 2 with a **`_`** prefix).
+
+**Data flow (short):**  
+`prepare` → Influx **`load_profile`** + **`load_profile_samplers`** (expected profile). JMeter run → **`jmeter`** (sample metrics) + **`load_stage_change`** lines from **StageTracker** (stage transitions).  
+`report` reads the profile from Influx and compares to **`jmeter`** by `test_run` and `transaction` / TG name.
 
 ---
 
@@ -163,10 +173,6 @@ Plateau duration is **`end − start`**, not necessarily the raw **Hold** of one
 ### 4. Stage events in Influx
 
 `StageTracker.groovy` writes auxiliary events (e.g. stage changes) for time alignment; the report may use them to refine **test start**. **Plateau boundaries used for RPS** come from the **parsed profile** (JMX + UTG simulation), not from eyeballing a chart.
-
-### 5. What not to commit
-
-Keep real URLs, Influx passwords, and tokens in local files only (e.g. a copy of `influx_config.example.json` named like `influx_config.local.json` in `.gitignore`). This repo ships **`influx_config.example.json`** (template) and **`influx_config_localhost.json`** (local dev sample).
 
 ---
 

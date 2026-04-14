@@ -25,7 +25,17 @@
 
 3. **Имена HTTP Sampler** — должны начинаться с одного из префиксов из **`sampler_filter.json`** (по умолчанию только **`HTTP`**, например **`HTTP Request …`**). Иначе сэмплер не попадёт в `*.profile.json` и в сводку по SLA в отчёте. Другие типы (JDBC и т.д.) — добавьте префикс в **`allowed_sampler_prefixes`** в том же JSON.
 
-4. **StageTracker.groovy** — на уровне **Test Plan**; **Backend Listener** — тот же Influx, что в вашем конфиге.
+4. **StageTracker.groovy** — на уровне **Test Plan** (скрипт из репозитория, путь к файлу в JSR223 должен быть доступен). **Backend Listener** (InfluxDB Backend Listener) — тот же Influx (URL, БД, учётка), что в JSON конфиге Python. Тег **`test_run`** в listener должен совпадать с переменной **`${test_run}`** в плане (после `prepare` она уже в JMX).
+
+5. **Ultimate Thread Group** — ступени нагрузки в `*.profile.json` сейчас собираются **только** для **`kg.apc.jmeter.threads.UltimateThreadGroup`**. Обычный **Thread Group** этим парсером в профиль **не** превращается (в примере `SimpleLoadTest.jmx` классические TG отключены). Для «лесенки» используйте UTG; симуляция суммарных потоков — в `utg_schedule.py`.
+
+6. **Constant Throughput Timer** — целевой RPS в отчёте считается как **(RPM × число потоков на ступени) / 60**, в духе режима «на поток» (см. комментарии в `send_profile_to_influx.py`). Если у вас другой calcMode CTT, цифра «целевой RPS» может не совпасть с фактом — тогда править формулу или план.
+
+7. **Несколько Transaction Controller** в одной TG — парсер собирает **все** их имена в `transaction_names`; отчёт строит фильтр по Influx по этому списку. Имена должны быть согласованы с тем, что реально попадает в тег **`transaction`** у Backend Listener (часто это пункт2 с префиксом **`_`**).
+
+**Цепочка данных (кратко):**  
+`prepare` → в Influx уходят **`load_profile`** и **`load_profile_samplers`** (ожидаемый профиль). Запуск JMeter → **`jmeter`** (метрики сэмплов) и строки **`load_stage_change`** из **StageTracker** (смена ступеней).  
+`report` читает профиль из Influx и сверяет с **`jmeter`** по `test_run` и `transaction` / имени TG.
 
 ---
 
@@ -163,10 +173,6 @@ python jmeter_load_pipeline.py report --config influx_config_localhost.json
 ### 4. События ступеней в Influx
 
 `StageTracker.groovy` пишет служебные события (например, смена ступени) для привязки времени; отчёт может использовать их для уточнения **начала** теста. **Границы плато для сверки RPS** берутся из **профиля** (распарсенный JMX + симуляция UTG), а не «нарезаются по глазу» из графика.
-
-### 5. Что не коммитить в публичный репозиторий
-
-Файлы с реальными URL стендов, паролями Influx и токенами держите локально (например, копия `influx_config.example.json` под именем вроде `influx_config.local.json` в `.gitignore`). В репозитории в качестве примеров — **`influx_config.example.json`** (шаблон) и **`influx_config_localhost.json`** (локальный dev).
 
 ---
 
