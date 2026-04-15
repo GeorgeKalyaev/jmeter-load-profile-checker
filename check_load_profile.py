@@ -77,6 +77,23 @@ def _influx_quoted_tag_value(s: str) -> str:
     return s.replace("\\", "\\\\").replace("'", "\\'")
 
 
+def _tg_jmeter_transaction_condition(transaction_names: Optional[List[str]]) -> str:
+    """
+    Фильтр по полю transaction для метрик одной Thread Group в get_actual_metrics.
+    Учитываются только Transaction Controller с именами _UC* (семплеры внутри уже
+    входят в count на уровне транзакции в Backend Listener).
+
+    Если в профиле есть имена, начинающиеся с _UC — условие OR по ним (узко под эту TG).
+    Иначе — общий шаблон /^_UC.*/ (все такие транзакции в окне времени).
+    """
+    names = transaction_names or []
+    uc_names = [n for n in names if isinstance(n, str) and n.startswith("_UC")]
+    if uc_names:
+        parts = [f'"transaction" = \'{_influx_quoted_tag_value(n)}\'' for n in uc_names]
+        return "(" + " OR ".join(parts) + ")"
+    return '"transaction" =~ /^_UC.*/'
+
+
 def _jmeter_transaction_filter_from_profile(transaction_names: List[str]) -> str:
     """
     Условие WHERE по полю transaction для поиска точек jmeter.
@@ -395,6 +412,10 @@ def get_actual_metrics(
 ) -> Dict[str, Any]:
     """
     Получает фактические метрики из InfluxDB за период плато.
+
+    Для thread_group_name учитываются только точки с transaction, совпадающими с
+    именами _UC* из transaction_names (OR), либо общий фильтр /^_UC.*/ если таких
+    имён в списке нет — см. _tg_jmeter_transaction_condition.
     
     Args:
         start_time_s: начало плато в секундах от старта теста
@@ -461,30 +482,16 @@ def get_actual_metrics(
     interval_seconds = int(aggregation_interval)
     
     if thread_group_name:
-        # RPS для конкретной Thread Group: фильтруем по transaction
-        # Используем список транзакций из профиля, если он есть, иначе используем имя Thread Group
-        if transaction_names:
-            # Экранируем имена транзакций для InfluxQL запроса
-            transaction_conditions = " OR ".join([f'"transaction" = \'{name}\'' for name in transaction_names])
-            query = f'''
-                SELECT sum("count") as count_per_interval
-                FROM "jmeter"
-                WHERE time >= {start_ns} AND time <= {end_ns}
-                AND "statut" = 'ok'
-                AND ({transaction_conditions})
-                GROUP BY time({interval_seconds}s)
-            '''
-        else:
-            # Обратная совместимость: используем имя Thread Group
-            transaction_name_with_underscore = f"_{thread_group_name}"
-            query = f'''
-                SELECT sum("count") as count_per_interval
-                FROM "jmeter"
-                WHERE time >= {start_ns} AND time <= {end_ns}
-                AND "statut" = 'ok'
-                AND ("transaction" = '{thread_group_name}' OR "transaction" = '{transaction_name_with_underscore}')
-                GROUP BY time({interval_seconds}s)
-            '''
+        # Только Transaction Controller _UC_* (семплеры внутри — в count транзакции)
+        tg_tx_cond = _tg_jmeter_transaction_condition(transaction_names)
+        query = f'''
+            SELECT sum("count") as count_per_interval
+            FROM "jmeter"
+            WHERE time >= {start_ns} AND time <= {end_ns}
+            AND "statut" = 'ok'
+            AND {tg_tx_cond}
+            GROUP BY time({interval_seconds}s)
+        '''
     else:
         # Общий RPS для всех групп
         query = f'''
@@ -516,26 +523,14 @@ def get_actual_metrics(
     # Запрашиваем общее количество успешных запросов за весь период
     # Если указан thread_group_name, считаем только для этой Thread Group
     if thread_group_name:
-        if transaction_names:
-            # Используем список транзакций из профиля
-            transaction_conditions = " OR ".join([f'"transaction" = \'{name}\'' for name in transaction_names])
-            query_total_requests = f'''
-                SELECT sum("count") as total_requests
-                FROM "jmeter"
-                WHERE time >= {start_ns} AND time <= {end_ns}
-                AND "statut" = 'ok'
-                AND ({transaction_conditions})
-            '''
-        else:
-            # Обратная совместимость
-            transaction_name_with_underscore = f"_{thread_group_name}"
-            query_total_requests = f'''
-                SELECT sum("count") as total_requests
-                FROM "jmeter"
-                WHERE time >= {start_ns} AND time <= {end_ns}
-                AND "statut" = 'ok'
-                AND ("transaction" = '{thread_group_name}' OR "transaction" = '{transaction_name_with_underscore}')
-            '''
+        tg_tx_cond = _tg_jmeter_transaction_condition(transaction_names)
+        query_total_requests = f'''
+            SELECT sum("count") as total_requests
+            FROM "jmeter"
+            WHERE time >= {start_ns} AND time <= {end_ns}
+            AND "statut" = 'ok'
+            AND {tg_tx_cond}
+        '''
     else:
         query_total_requests = f'''
             SELECT sum("count") as total_requests
@@ -580,27 +575,14 @@ def get_actual_metrics(
     # Если указан thread_group_name, считаем ошибки только для этой Thread Group
     # Иначе считаем общие ошибки для всех групп
     if thread_group_name:
-        # Ошибки для конкретной Thread Group: используем statut='ko' и фильтр по transaction
-        if transaction_names:
-            # Используем список транзакций из профиля
-            transaction_conditions = " OR ".join([f'"transaction" = \'{name}\'' for name in transaction_names])
-            query_total_errors = f'''
-                SELECT sum("count") as total_errors
-                FROM "jmeter"
-                WHERE time >= {start_ns} AND time <= {end_ns}
-                AND "statut" = 'ko'
-                AND ({transaction_conditions})
-            '''
-        else:
-            # Обратная совместимость
-            transaction_name_with_underscore = f"_{thread_group_name}"
-            query_total_errors = f'''
-                SELECT sum("count") as total_errors
-                FROM "jmeter"
-                WHERE time >= {start_ns} AND time <= {end_ns}
-                AND "statut" = 'ko'
-                AND ("transaction" = '{thread_group_name}' OR "transaction" = '{transaction_name_with_underscore}')
-            '''
+        tg_tx_cond = _tg_jmeter_transaction_condition(transaction_names)
+        query_total_errors = f'''
+            SELECT sum("count") as total_errors
+            FROM "jmeter"
+            WHERE time >= {start_ns} AND time <= {end_ns}
+            AND "statut" = 'ko'
+            AND {tg_tx_cond}
+        '''
     else:
         # Общие ошибки для всех групп: используем statut='all' и transaction='all'
         query_total_errors = f'''
@@ -624,30 +606,16 @@ def get_actual_metrics(
     # Запрашиваем метрики времени отклика за весь период
     # Если указан thread_group_name, считаем только для этой Thread Group
     if thread_group_name:
-        if transaction_names:
-            # Используем список транзакций из профиля
-            transaction_conditions = " OR ".join([f'"transaction" = \'{name}\'' for name in transaction_names])
-            query_response_times = f'''
-                SELECT mean("avg") as avg_response_time,
-                       mean("pct95.0") as pct95_response_time,
-                       max("max") as max_response_time
-                FROM "jmeter"
-                WHERE time >= {start_ns} AND time <= {end_ns}
-                AND "statut" = 'ok'
-                AND ({transaction_conditions})
-            '''
-        else:
-            # Обратная совместимость
-            transaction_name_with_underscore = f"_{thread_group_name}"
-            query_response_times = f'''
-                SELECT mean("avg") as avg_response_time,
-                       mean("pct95.0") as pct95_response_time,
-                       max("max") as max_response_time
-                FROM "jmeter"
-                WHERE time >= {start_ns} AND time <= {end_ns}
-                AND "statut" = 'ok'
-                AND ("transaction" = '{thread_group_name}' OR "transaction" = '{transaction_name_with_underscore}')
-            '''
+        tg_tx_cond = _tg_jmeter_transaction_condition(transaction_names)
+        query_response_times = f'''
+            SELECT mean("avg") as avg_response_time,
+                   mean("pct95.0") as pct95_response_time,
+                   max("max") as max_response_time
+            FROM "jmeter"
+            WHERE time >= {start_ns} AND time <= {end_ns}
+            AND "statut" = 'ok'
+            AND {tg_tx_cond}
+        '''
     else:
         # Общие метрики для всех групп
         query_response_times = f'''
@@ -1507,7 +1475,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             <h5 style="margin-top: 0; color: #2196F3;">2. Фактический RPS (эта Thread Group)</h5>
             <p style="margin: 5px 0;"><strong>Когда рассчитывается:</strong> ПОСЛЕ теста (из InfluxDB)</p>
             <p style="margin: 5px 0;"><strong>Что показывает:</strong> Реальный RPS, который был достигнут ЭТОЙ Thread Group за <strong>оцениваемое окно плато</strong> (полное из профиля или укороченное при ранней остановке и статусе PARTIAL).</p>
-            <p style="margin: 5px 0;"><strong>Источник данных:</strong> InfluxDB, measurement <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">jmeter</code> (JMeter Backend Listener). Список транзакций для TG берётся из профиля в Influx (<code>load_profile</code>): имена из JMX / Transaction Controller / Module Controller — не обязательно только префикс <code>_UC</code>.</p>
+            <p style="margin: 5px 0;"><strong>Источник данных:</strong> InfluxDB, measurement <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">jmeter</code> (JMeter Backend Listener). Для каждой Thread Group считаются только серии с именем транзакции <strong><code>_UC*</code></strong> (Transaction Controller): семплеры внутри уже входят в count родительской транзакции. Если в профиле (<code>load_profile</code>) для TG перечислены такие имена — в запросе OR по ним; если в профиле нет имён с префиксом <code>_UC</code>, используется условие <code>transaction =~ /^_UC.*/</code> в окне времени (при параллельных TG возможен суммарный учёт всех <code>_UC</code> в этот момент).</p>
             <p style="margin: 5px 0;"><strong>Формула:</strong> <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">Общее количество успешных запросов / Длительность оцениваемого плато (сек)</code></p>
             <p style="margin: 5px 0; color: #666; font-style: italic;">Успешные запросы: <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">statut = 'ok'</code>. Ошибки учитываются отдельно в колонках запросов и % ошибок.</p>
         </div>
