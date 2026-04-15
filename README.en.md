@@ -33,6 +33,8 @@ So **`parse_jmx_profile`**, Influx, and **`check_load_profile`** line up without
 
 7. **Several Transaction Controllers** in one TG — the parser collects **all** their names into `transaction_names`; the report builds the Influx filter from that list. Names must match what the Backend Listener actually writes into the **`transaction`** tag (often item 2 with a **`_`** prefix).
 
+8. **Module Controller** inside a UTG (reference to another subtree) — the parser adds the **last segment** of `node_path` to `transaction_names` (e.g. **`_UC_01_Check_List`**). Otherwise, with an “empty” UTG tree, the profile would only list `UC_01_Group_List` / `_UC_01_Group_List` while Influx uses a different `transaction` → **0 requests** and 100% deviation in the report.
+
 **Data flow (short):**  
 `prepare` → Influx **`load_profile`** + **`load_profile_samplers`** (expected profile). JMeter run → **`jmeter`** (sample metrics) + **`load_stage_change`** lines from **StageTracker** (stage transitions).  
 `report` reads the profile from Influx and compares to **`jmeter`** by `test_run` and `transaction` / TG name.
