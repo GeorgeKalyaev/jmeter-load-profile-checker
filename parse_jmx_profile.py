@@ -201,6 +201,31 @@ def find_all_transaction_controllers_in_hash_tree(hash_tree: ET.Element) -> List
     return transaction_names
 
 
+def find_module_controller_targets_in_hash_tree(hash_tree: ET.Element) -> List[str]:
+    """
+    Имена целей Module Controller (последний сегмент node_path) — по ним в Influx часто идёт тег transaction,
+    когда внутри UTG нет своего Transaction Controller, а сценарий подключается из другого места плана.
+    """
+    names: List[str] = []
+    for module in hash_tree.iter("ModuleController"):
+        if module.attrib.get("enabled", "true") != "true":
+            continue
+        node_path = None
+        for cp in module.findall("collectionProp"):
+            if cp.get("name") == "ModuleController.node_path":
+                node_path = cp
+                break
+        if node_path is None:
+            continue
+        props = node_path.findall("stringProp")
+        if not props:
+            continue
+        last = (props[-1].text or "").strip()
+        if last and last not in names:
+            names.append(last)
+    return names
+
+
 def walk_hash_tree_and_collect(root_hash: ET.Element) -> List[Dict[str, Any]]:
     """
     Walk any hashTree recursively; in JMeter structure components and their hashTree siblings
@@ -221,7 +246,10 @@ def walk_hash_tree_and_collect(root_hash: ET.Element) -> List[Dict[str, Any]]:
             transaction_names = []
             if sibling_hash is not None:
                 transaction_names = find_all_transaction_controllers_in_hash_tree(sibling_hash)
-            
+                for mod_target in find_module_controller_targets_in_hash_tree(sibling_hash):
+                    if mod_target not in transaction_names:
+                        transaction_names.append(mod_target)
+
             # Если транзакций не найдено, добавляем имя Thread Group для обратной совместимости
             utg_name = utg_info.get("name", "")
             if not transaction_names and utg_name:

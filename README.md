@@ -33,6 +33,8 @@
 
 7. **Несколько Transaction Controller** в одной TG — парсер собирает **все** их имена в `transaction_names`; отчёт строит фильтр по Influx по этому списку. Имена должны быть согласованы с тем, что реально попадает в тег **`transaction`** у Backend Listener (часто это пункт2 с префиксом **`_`**).
 
+8. **Module Controller** внутри UTG (ссылка на фрагмент плана) — в `transaction_names` добавляется **последний сегмент** `node_path` (например **`_UC_01_Check_List`**). Иначе при пустом дереве UTG парсер оставлял бы только `UC_01_Group_List` / `_UC_01_Group_List`, а в Influx были бы сэмплы с другим `transaction` → в отчёте **0 запросов** и 100% отклонение.
+
 **Цепочка данных (кратко):**  
 `prepare` → в Influx уходят **`load_profile`** и **`load_profile_samplers`** (ожидаемый профиль). Запуск JMeter → **`jmeter`** (метрики сэмплов) и строки **`load_stage_change`** из **StageTracker** (смена ступеней).  
 `report` читает профиль из Influx и сверяет с **`jmeter`** по `test_run` и `transaction` / имени TG.
