@@ -14,7 +14,7 @@ import math
 import sys
 import urllib.request
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 
@@ -1207,6 +1207,7 @@ def check_profile_compliance(
         "check_time": datetime.now().isoformat(),
         "thread_groups": {},
         "overall_status": "PASS",
+        "tolerance_pct": tolerance_pct,
     }
     
     # Собираем все уникальные ступени по времени (plateau_start_s)
@@ -1397,8 +1398,18 @@ def check_profile_compliance(
     return results
 
 
+def _format_ns_utc(ns: Optional[int]) -> str:
+    if ns is None:
+        return "—"
+    try:
+        return datetime.fromtimestamp(ns / 1e9, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (OSError, OverflowError, ValueError):
+        return str(ns)
+
+
 def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
     """Генерирует HTML отчёт."""
+    tol = float(results.get("tolerance_pct", 10.0))
     coverage_warn = ""
     if results.get("has_skip_or_partial_stages"):
         coverage_warn = """
@@ -1409,6 +1420,23 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         Это не то же самое, что <span class="status-FAIL">FAIL</span> из‑за превышения допустимого отклонения на полной ступени.
         Общий статус относится только к ступеням, где проверка выполнялась.
     </div>"""
+
+    test_start_disp = _format_ns_utc(results.get("test_start_time_ns"))
+    test_end_disp = _format_ns_utc(results.get("test_end_time_ns"))
+    if results.get("test_end_time_ns") is None:
+        end_line = (
+            "<strong>Конец теста по Influx:</strong> не определён — в <code>jmeter</code> нет последней точки с тегом "
+            "<code>test_run</code>, совпадающим с этим прогоном (ступени не помечаются SKIP/PARTIAL по времени остановки)."
+        )
+    else:
+        end_line = (
+            f"<strong>Конец теста по Influx</strong> (последняя точка <code>jmeter</code> с <code>test_run</code>): "
+            f"<code>{test_end_disp}</code>"
+        )
+    timing_lines = f"""    <p><strong>Порог отклонения RPS (эта проверка):</strong> {tol:g}%</p>
+    <p style="font-size:0.95em; color:#444;"><strong>Оценка старта теста:</strong> {test_start_disp}</p>
+    <p style="font-size:0.95em; color:#444;">{end_line}</p>
+"""
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -1459,6 +1487,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
     <h1>Проверка профиля нагрузки</h1>
     <p><strong>Test Run ID:</strong> {results['test_run']}</p>
     <p><strong>Время проверки:</strong> {results['check_time']}</p>
+{timing_lines}
     <p><strong>Общий статус:</strong> <span class="status-{results['overall_status']}">{results['overall_status']}</span></p>
 {coverage_warn}
     <h2>Результаты по Thread Groups</h2>
@@ -1477,19 +1506,26 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         <div style="margin: 15px 0; padding: 15px; background-color: #ffffff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
             <h5 style="margin-top: 0; color: #2196F3;">2. Фактический RPS (эта Thread Group)</h5>
             <p style="margin: 5px 0;"><strong>Когда рассчитывается:</strong> ПОСЛЕ теста (из InfluxDB)</p>
-            <p style="margin: 5px 0;"><strong>Что показывает:</strong> Реальный RPS, который был достигнут ЭТОЙ Thread Group за период плато</p>
-            <p style="margin: 5px 0;"><strong>Источник данных:</strong> InfluxDB, measurement <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">jmeter</code> (собирается JMeter Backend Listener во время теста)</p>
-            <p style="margin: 5px 0;"><strong>Формула:</strong> <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">Общее количество успешных запросов / Длительность плато (сек)</code></p>
-            <p style="margin: 5px 0; color: #666; font-style: italic;">Более точный способ расчета: суммируем все запросы за весь период плато и делим на длительность плато в секундах.</p>
-            <p style="margin: 5px 0; color: #666; font-style: italic;">Учитываются только успешные запросы (<code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">statut = 'ok'</code>) и транзакции ЭТОЙ Thread Group (например, <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">transaction = '_UC_01_Yandex'</code>).</p>
+            <p style="margin: 5px 0;"><strong>Что показывает:</strong> Реальный RPS, который был достигнут ЭТОЙ Thread Group за <strong>оцениваемое окно плато</strong> (полное из профиля или укороченное при ранней остановке и статусе PARTIAL).</p>
+            <p style="margin: 5px 0;"><strong>Источник данных:</strong> InfluxDB, measurement <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">jmeter</code> (JMeter Backend Listener). Список транзакций для TG берётся из профиля в Influx (<code>load_profile</code>): имена из JMX / Transaction Controller / Module Controller — не обязательно только префикс <code>_UC</code>.</p>
+            <p style="margin: 5px 0;"><strong>Формула:</strong> <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">Общее количество успешных запросов / Длительность оцениваемого плато (сек)</code></p>
+            <p style="margin: 5px 0; color: #666; font-style: italic;">Успешные запросы: <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">statut = 'ok'</code>. Ошибки учитываются отдельно в колонках запросов и % ошибок.</p>
+        </div>
+        
+        <div style="margin: 15px 0; padding: 15px; background-color: #e8f4fd; border-left: 3px solid #2196F3; border-radius: 3px;">
+            <h5 style="margin-top: 0; color: #1565c0;">3. Статусы ступени (ранний стоп)</h5>
+            <p style="margin: 5px 0;"><strong>PASS / FAIL</strong> — полное окно плато по профилю; FAIL, если отклонение RPS &gt; {tol:g}%.</p>
+            <p style="margin: 5px 0;"><strong>PARTIAL</strong> — тест закончился внутри плато; RPS и «ожидаемые запросы» считаются по <strong>укороченной</strong> длительности; PARTIAL = по этому куску отклонение ≤ {tol:g}% (не путать с FAIL «не выдержали профиль» на полной ступени).</p>
+            <p style="margin: 5px 0;"><strong>SKIP</strong> — до плато этой ступени тест не дошёл; метрики не считаются, в общий FAIL не входит.</p>
+            <p style="margin: 5px 0; color: #666; font-style: italic;">Нужны время старта из данных и последняя точка <code>jmeter</code> с тегом <code>test_run</code> (см. блок выше). Иначе все ступени считаются по полному окну из профиля.</p>
         </div>
         
         <div style="margin: 15px 0; padding: 15px; background-color: #fff3cd; border-left: 3px solid #ffc107; border-radius: 3px;">
-            <h5 style="margin-top: 0; color: #856404;">Отклонение % и Статус</h5>
+            <h5 style="margin-top: 0; color: #856404;">4. Отклонение % и порог</h5>
             <p style="margin: 5px 0;"><strong>ВАЖНО:</strong> Отклонение считается для <strong>каждой Thread Group отдельно</strong>, а не для суммы всех групп!</p>
             <p style="margin: 5px 0;"><strong>Формула отклонения:</strong> <code style="background-color: #fff8dc; padding: 2px 6px; border-radius: 3px;">|Фактический RPS этой TG - Целевой RPS этой TG| / Целевой RPS этой TG × 100%</code></p>
             <p style="margin: 5px 0;"><strong>Пример:</strong> UC_01_Yandex: целевой RPS = 1.67, фактический RPS = 2.00 → отклонение = |2.00 - 1.67| / 1.67 × 100% = <strong>19.76%</strong></p>
-            <p style="margin: 5px 0;"><strong>Статус:</strong> <span style="color: green; font-weight: bold;">PASS</span> если отклонение ≤ 10%, <span style="color: red; font-weight: bold;">FAIL</span> если отклонение > 10%</p>
+            <p style="margin: 5px 0;"><strong>Порог для PASS / FAIL по RPS (эта проверка):</strong> <span style="color: green; font-weight: bold;">PASS</span> если отклонение ≤ <strong>{tol:g}%</strong>, <span style="color: red; font-weight: bold;">FAIL</span> если отклонение &gt; <strong>{tol:g}%</strong> (задаётся аргументом скрипта или значением по умолчанию).</p>
             <p style="margin: 5px 0; color: #666; font-style: italic;">Отклонение считается относительно целевого RPS ЭТОЙ конкретной Thread Group.</p>
         </div>
     </div>
@@ -1516,12 +1552,12 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             <th title="Общее количество успешных запросов за период плато">Запросов<br/>(успешных)</th>
             <th title="Общее количество запросов с ошибками за период плато">Запросов<br/>(с ошибками)</th>
             <th title="Процент ошибок = (ошибки / (успешные + ошибки)) × 100%">% Ошибок</th>
-            <th title="Ожидаемое число запросов = целевой RPS этой Thread Group × длительность только плато (hold): plateau_end_s − plateau_start_s; ramp-up/ramp-down между ступенями не входят">Ожидаемое<br/>запросов</th>
+            <th title="Ожидаемое число запросов = целевой RPS × длительность оцениваемого плато (полный hold или укороченный интервал при PARTIAL)">Ожидаемое<br/>запросов</th>
             <th title="Фактическое количество запросов = Успешные + Ошибки">Фактическое<br/>запросов</th>
             <th title="Среднее время отклика всех запросов за плато (мс)">Avg RT<br/>(мс)</th>
             <th title="95-й перцентиль времени отклика (мс)">P95 RT<br/>(мс)</th>
             <th title="Максимальное время отклика за плато (мс). Может содержать выбросы (outliers)">Max RT<br/>(мс)</th>
-            <th title="PASS если отклонение ≤ 10%, иначе FAIL">Статус</th>
+            <th title="PASS/FAIL по RPS: порог {tol:g}%. Также PARTIAL (успех на укороченном плато) и SKIP (ступень не достигнута) — см. пояснения вверху отчёта.">Статус</th>
         </tr>
 """
         # Сортируем ступени по stage_idx для правильного отображения
@@ -1738,13 +1774,13 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             <th title="Среднее время отклика по всем Thread Groups (взвешенное)">Avg RT<br/>(мс)</th>
             <th title="Максимальное P95 время отклика среди всех Thread Groups">P95 RT<br/>(мс)</th>
             <th title="Максимальное время отклика среди всех Thread Groups">Max RT<br/>(мс)</th>
-            <th title="Статус проверки: PASS если отклонение ≤ 10%, иначе FAIL">Статус</th>
+            <th title="Статус: PASS/FAIL по отклонению RPS с порогом {tol:g}%; SKIP/PARTIAL — см. пояснения.">Статус</th>
         </tr>
 """
     
     # Собираем данные по всем Thread Groups для каждой ступени
     all_stages_summary = {}  # {stage_idx: {метрики}}
-    tolerance_pct = 10.0  # Используем тот же порог, что и для отдельных TG
+    tolerance_pct = tol
     
     for tg_name, tg_data in results.get("thread_groups", {}).items():
         for stage in tg_data.get("stages", []):
