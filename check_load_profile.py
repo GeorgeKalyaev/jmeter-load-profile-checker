@@ -16,6 +16,7 @@ import urllib.request
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from html import escape
 from pathlib import Path
 
 
@@ -75,6 +76,51 @@ def load_sampler_filter_config(config_path: Optional[Path] = None) -> List[str]:
 def _influx_quoted_tag_value(s: str) -> str:
     """Экранирование значения для InfluxQL в одинарных кавычках."""
     return s.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _jmeter_tag_filter_sql(
+    test_run_id: str,
+    runner_id: Optional[str] = None,
+    *,
+    require_test_run_tag: bool = True,
+) -> str:
+    """
+    Фрагмент AND ... для запросов к measurement jmeter.
+    Если require_test_run_tag=False (режим без тега runner в прогоне), тег test_run не фильтруем —
+    обратная совместимость со старыми точками без тега.
+    """
+    parts: List[str] = []
+    if require_test_run_tag and test_run_id:
+        safe = _influx_quoted_tag_value(test_run_id)
+        parts.append(f'"test_run" = \'{safe}\'')
+    if runner_id is not None:
+        rsafe = _influx_quoted_tag_value(runner_id)
+        parts.append(f'"runner" = \'{rsafe}\'')
+    if not parts:
+        return ""
+    return " AND " + " AND ".join(parts)
+
+
+def list_jmeter_runner_ids(
+    test_run_id: str,
+    influx_url: str,
+    db_name: str,
+    username: str = None,
+    password: str = None,
+) -> List[str]:
+    """Список значений тега runner в jmeter для данного test_run (пусто — один «логический» источник)."""
+    safe = _influx_quoted_tag_value(test_run_id)
+    query = (
+        f'SHOW TAG VALUES FROM "jmeter" WITH KEY = "runner" '
+        f'WHERE "test_run" = \'{safe}\''
+    )
+    series = query_influx(query, influx_url, db_name, username, password)
+    found: List[str] = []
+    for s in series:
+        for row in s.get("values", []):
+            if len(row) >= 2 and row[1] is not None and str(row[1]).strip() != "":
+                found.append(str(row[1]).strip())
+    return sorted(set(found))
 
 
 def _tg_jmeter_transaction_condition(transaction_names: Optional[List[str]]) -> str:
@@ -409,6 +455,8 @@ def get_actual_metrics(
     aggregation_interval: float = 10.0,
     thread_group_name: str = None,
     transaction_names: List[str] = None,
+    runner_id: Optional[str] = None,
+    use_test_run_tag: bool = True,
 ) -> Dict[str, Any]:
     """
     Получает фактические метрики из InfluxDB за период плато.
@@ -421,7 +469,12 @@ def get_actual_metrics(
         start_time_s: начало плато в секундах от старта теста
         end_time_s: конец плато в секундах от старта теста
         test_start_time_ns: абсолютное время старта теста в наносекундах (если None, используется относительное время)
+        runner_id: если задан — только точки jmeter с этим тегом runner (под/хост)
+        use_test_run_tag: если False — не фильтровать по test_run (старые прогоны без тега)
     """
+    tag_sql = _jmeter_tag_filter_sql(
+        test_run_id, runner_id, require_test_run_tag=use_test_run_tag
+    )
     if test_start_time_ns:
         # Используем абсолютное время: время старта теста + относительное время плато
         start_ns = test_start_time_ns + (start_time_s * 1_000_000_000)
@@ -489,7 +542,7 @@ def get_actual_metrics(
             FROM "jmeter"
             WHERE time >= {start_ns} AND time <= {end_ns}
             AND "statut" = 'ok'
-            AND {tg_tx_cond}
+            AND {tg_tx_cond}{tag_sql}
             GROUP BY time({interval_seconds}s)
         '''
     else:
@@ -499,7 +552,7 @@ def get_actual_metrics(
             FROM "jmeter"
             WHERE time >= {start_ns} AND time <= {end_ns}
             AND "statut" = 'ok'
-            AND "transaction" =~ /^_UC.*/
+            AND "transaction" =~ /^_UC.*/{tag_sql}
             GROUP BY time({interval_seconds}s)
         '''
     
@@ -529,7 +582,7 @@ def get_actual_metrics(
             FROM "jmeter"
             WHERE time >= {start_ns} AND time <= {end_ns}
             AND "statut" = 'ok'
-            AND {tg_tx_cond}
+            AND {tg_tx_cond}{tag_sql}
         '''
     else:
         query_total_requests = f'''
@@ -537,7 +590,7 @@ def get_actual_metrics(
             FROM "jmeter"
             WHERE time >= {start_ns} AND time <= {end_ns}
             AND "statut" = 'ok'
-            AND "transaction" =~ /^_UC.*/
+            AND "transaction" =~ /^_UC.*/{tag_sql}
         '''
     
     series_total = query_influx(query_total_requests, influx_url, db_name, username, password)
@@ -581,7 +634,7 @@ def get_actual_metrics(
             FROM "jmeter"
             WHERE time >= {start_ns} AND time <= {end_ns}
             AND "statut" = 'ko'
-            AND {tg_tx_cond}
+            AND {tg_tx_cond}{tag_sql}
         '''
     else:
         # Общие ошибки для всех групп: используем statut='all' и transaction='all'
@@ -590,7 +643,7 @@ def get_actual_metrics(
             FROM "jmeter"
             WHERE time >= {start_ns} AND time <= {end_ns}
             AND "statut" = 'all'
-            AND "transaction" = 'all'
+            AND "transaction" = 'all'{tag_sql}
         '''
     
     series_errors = query_influx(query_total_errors, influx_url, db_name, username, password)
@@ -614,7 +667,7 @@ def get_actual_metrics(
             FROM "jmeter"
             WHERE time >= {start_ns} AND time <= {end_ns}
             AND "statut" = 'ok'
-            AND {tg_tx_cond}
+            AND {tg_tx_cond}{tag_sql}
         '''
     else:
         # Общие метрики для всех групп
@@ -625,7 +678,7 @@ def get_actual_metrics(
             FROM "jmeter"
             WHERE time >= {start_ns} AND time <= {end_ns}
             AND "statut" = 'ok'
-            AND ("transaction" = 'all' OR "transaction" =~ /^_UC.*/)
+            AND ("transaction" = 'all' OR "transaction" =~ /^_UC.*/){tag_sql}
         '''
     
     series_response_times = query_influx(query_response_times, influx_url, db_name, username, password)
@@ -991,6 +1044,197 @@ def check_sampler_criteria(
     return results
 
 
+def _compute_thread_group_results(
+    profile: Dict[str, Any],
+    test_run_id: str,
+    test_start_time_ns: Optional[int],
+    test_end_time_ns: Optional[int],
+    influx_url: str,
+    db_name: str,
+    username: Optional[str],
+    password: Optional[str],
+    tolerance_pct: float,
+    aggregation_interval: float,
+    runner_id: Optional[str],
+    use_test_run_tag: bool,
+    target_rps_multiplier: float,
+    log_label: str,
+) -> Dict[str, Any]:
+    """
+    Считает thread_groups + overall_status для одного режима:
+    один runner (multiplier=1), или кластер (runner_id=None, multiplier=N, цели × N).
+    """
+    thread_groups: Dict[str, Any] = {}
+    overall_status = "PASS"
+
+    for tg_name, tg_data in profile.get("thread_groups", {}).items():
+        tg_results: Dict[str, Any] = {
+            "name": tg_name,
+            "stages": [],
+            "status": "PASS",
+        }
+
+        sorted_stages = sorted(tg_data.get("stages", []), key=lambda x: x.get("stage_idx", 0))
+        for stage in sorted_stages:
+            stage_idx = stage["stage_idx"]
+            plateau_start = stage["plateau_start_s"]
+            plateau_end = stage["plateau_end_s"]
+            base_target_rps = float(stage.get("target_rps", 0.0))
+            threads_inst = int(stage.get("threads", 0))
+            effective_target_rps = base_target_rps * target_rps_multiplier
+            threads_display = int(round(threads_inst * target_rps_multiplier))
+
+            print(
+                f"Проверка [{log_label}] {tg_name}, ступень {stage_idx} "
+                f"(плато t={plateau_start}-{plateau_end}s, без ramp)..."
+            )
+
+            transaction_names = tg_data.get("transaction_names", [])
+            ev_kind, metrics_start_s, metrics_end_s, skip_reason = classify_plateau_evaluation(
+                plateau_start,
+                plateau_end,
+                test_start_time_ns,
+                test_end_time_ns,
+            )
+
+            if ev_kind == "skip":
+                print(f"  [SKIP] {skip_reason}")
+                tg_results["stages"].append(
+                    {
+                        "stage_idx": stage_idx,
+                        "plateau_start_s": plateau_start,
+                        "plateau_end_s": plateau_end,
+                        "plateau_duration_s": 0,
+                        "target_rps": effective_target_rps,
+                        "target_rps_one_instance": base_target_rps,
+                        "total_target_rps": effective_target_rps,
+                        "actual_rps": 0.0,
+                        "deviation_pct": 0.0,
+                        "threads": threads_display,
+                        "threads_one_instance": threads_inst,
+                        "status": "SKIP",
+                        "evaluation": "skip",
+                        "skip_reason": skip_reason,
+                        "samplers": {
+                            "all": {
+                                "mean_rps": 0.0,
+                                "mean_rps_by_intervals": 0.0,
+                                "total_requests": 0,
+                                "total_errors": 0,
+                                "avg_response_time_ms": 0.0,
+                                "pct95_response_time_ms": 0.0,
+                                "max_response_time_ms": 0.0,
+                            }
+                        },
+                        "total_requests": 0,
+                        "total_errors": 0,
+                        "error_percentage": 0.0,
+                        "avg_response_time_ms": 0.0,
+                        "pct95_response_time_ms": 0.0,
+                        "max_response_time_ms": 0.0,
+                        "expected_requests": 0,
+                        "actual_all_requests": 0,
+                    }
+                )
+                continue
+
+            actual_metrics = get_actual_metrics(
+                test_run_id,
+                metrics_start_s,
+                metrics_end_s,
+                influx_url,
+                db_name,
+                username,
+                password,
+                test_start_time_ns,
+                aggregation_interval,
+                thread_group_name=tg_name,
+                transaction_names=transaction_names,
+                runner_id=runner_id,
+                use_test_run_tag=use_test_run_tag,
+            )
+
+            if "all" in actual_metrics:
+                actual_rps_this_tg = actual_metrics["all"].get("mean_rps", 0.0)
+            else:
+                actual_rps_this_tg = 0.0
+
+            deviation_pct = 0.0
+            if effective_target_rps > 0:
+                deviation_pct = abs(
+                    (actual_rps_this_tg - effective_target_rps) / effective_target_rps * 100.0
+                )
+
+            rps_ok = deviation_pct <= tolerance_pct
+            if ev_kind == "partial":
+                stage_status = "PARTIAL" if rps_ok else "FAIL"
+            else:
+                stage_status = "PASS" if rps_ok else "FAIL"
+
+            if stage_status == "FAIL":
+                tg_results["status"] = "FAIL"
+                overall_status = "FAIL"
+
+            all_metrics = actual_metrics.get("all", {})
+            total_requests = all_metrics.get("total_requests", 0)
+            total_errors = all_metrics.get("total_errors", 0)
+            avg_response_time_ms = all_metrics.get("avg_response_time_ms", 0.0)
+            pct95_response_time_ms = all_metrics.get("pct95_response_time_ms", 0.0)
+            max_response_time_ms = all_metrics.get("max_response_time_ms", 0.0)
+
+            total_all_requests = total_requests + total_errors
+            error_percentage = 0.0
+            if total_all_requests > 0:
+                error_percentage = (total_errors / total_all_requests) * 100.0
+
+            plateau_duration_s = metrics_end_s - metrics_start_s
+            expected_requests_this_tg = int(effective_target_rps * plateau_duration_s)
+            actual_all_requests = total_requests + total_errors
+
+            stage_result = {
+                "stage_idx": stage_idx,
+                "plateau_start_s": plateau_start,
+                "plateau_end_s": plateau_end,
+                "metrics_window_start_s": metrics_start_s,
+                "metrics_window_end_s": metrics_end_s,
+                "plateau_duration_s": plateau_duration_s,
+                "target_rps": effective_target_rps,
+                "target_rps_one_instance": base_target_rps,
+                "total_target_rps": effective_target_rps,
+                "actual_rps": actual_rps_this_tg,
+                "deviation_pct": deviation_pct,
+                "threads": threads_display,
+                "threads_one_instance": threads_inst,
+                "status": stage_status,
+                "evaluation": ev_kind,
+                "samplers": actual_metrics,
+                "total_requests": total_requests,
+                "total_errors": total_errors,
+                "error_percentage": error_percentage,
+                "avg_response_time_ms": avg_response_time_ms,
+                "pct95_response_time_ms": pct95_response_time_ms,
+                "max_response_time_ms": max_response_time_ms,
+                "expected_requests": expected_requests_this_tg,
+                "actual_all_requests": actual_all_requests,
+            }
+            if runner_id is not None:
+                stage_result["runner_id"] = runner_id
+
+            tg_results["stages"].append(stage_result)
+
+        thread_groups[tg_name] = tg_results
+
+    return {"thread_groups": thread_groups, "overall_status": overall_status}
+
+
+def _any_skip_or_partial(thread_groups: Dict[str, Any]) -> bool:
+    return any(
+        s.get("status") in ("SKIP", "PARTIAL")
+        for tg in thread_groups.values()
+        for s in tg.get("stages", [])
+    )
+
+
 def check_profile_compliance(
     test_run_id: str,
     influx_url: str,
@@ -1006,6 +1250,15 @@ def check_profile_compliance(
     
     print(f"Загрузка событий переходов на ступени...")
     events = get_stage_events(test_run_id, influx_url, db_name, username, password)
+
+    runner_ids = list_jmeter_runner_ids(
+        test_run_id, influx_url, db_name, username, password
+    )
+    use_test_run_tag = len(runner_ids) > 0
+    if runner_ids:
+        print(
+            f"Раннеры (тег runner в jmeter): {len(runner_ids)} шт. — {', '.join(runner_ids)}"
+        )
     
     # Собираем все transaction_names из профиля для поиска данных
     all_transaction_names = []
@@ -1013,8 +1266,14 @@ def check_profile_compliance(
         transaction_names = tg_data.get("transaction_names", [])
         all_transaction_names.extend(transaction_names)
     all_transaction_names = list(set(all_transaction_names))  # Убираем дубликаты
+
+    earliest_tag_sql = _jmeter_tag_filter_sql(
+        test_run_id, None, require_test_run_tag=use_test_run_tag
+    )
     
-    # Определяем время старта теста
+    # Определяем время старта теста (одно на весь прогон для всех runner).
+    # FUTURE (не реализовано): при нескольких подах можно ввести test_start_time_ns на каждый runner,
+    # чтобы окна плато по метрикам jmeter совпадали со сдвигом старта каждого пода.
     # ВАЖНО: События load_stage_change приходят при входе в окно плато ступени (после ramp-up по профилю);
     # сами метрики jmeter могут появляться раньше (Backend Listener). Сравнение RPS/RT в отчёте — только
     # по интервалу [plateau_start_s, plateau_end_s), т.е. по чистому hold, без ramp-up/ramp-down между ступенями.
@@ -1055,7 +1314,7 @@ def check_profile_compliance(
                     FROM "jmeter"
                     WHERE time >= {search_start_ns} AND time <= {search_end_ns}
                     AND "statut" = 'ok'
-                    AND {tx_filter}
+                    AND {tx_filter}{earliest_tag_sql}
                     ORDER BY time ASC
                     LIMIT 1
                 '''
@@ -1113,7 +1372,7 @@ def check_profile_compliance(
                             SELECT time
                             FROM "jmeter"
                             WHERE time >= {search_start_ns} AND time <= {search_end_ns}
-                            AND "statut" = 'ok'
+                            AND "statut" = 'ok'{earliest_tag_sql}
                             ORDER BY time ASC
                             LIMIT 1
                         '''
@@ -1170,199 +1429,101 @@ def check_profile_compliance(
                 "ступени не помечаются как SKIP/PARTIAL по факту ранней остановки."
             )
     
-    results = {
+    results: Dict[str, Any] = {
         "test_run": test_run_id,
         "check_time": datetime.now().isoformat(),
         "thread_groups": {},
         "overall_status": "PASS",
         "tolerance_pct": tolerance_pct,
     }
-    
-    # Собираем все уникальные ступени по времени (plateau_start_s)
-    # для вычисления общего целевого RPS
-    stages_by_time = {}  # {plateau_start_s: [stage_info, ...]}
-    seen_stages_in_time = set()  # Для фильтрации дубликатов при группировке по времени
-    
-    for tg_name, tg_data in profile.get("thread_groups", {}).items():
-        # Сортируем ступени по stage_idx для правильного отображения
-        sorted_stages = sorted(tg_data.get("stages", []), key=lambda x: x.get("stage_idx", 0))
-        for stage in sorted_stages:
-            plateau_start = stage["plateau_start_s"]
-            stage_idx = stage.get("stage_idx", 0)
-            
-            # Используем уникальный ключ (tg_name, stage_idx, plateau_start) для фильтрации дубликатов
-            stage_key = (tg_name, stage_idx, plateau_start)
-            if stage_key in seen_stages_in_time:
-                continue  # Пропускаем дубликаты
-            
-            seen_stages_in_time.add(stage_key)
-            
-            if plateau_start not in stages_by_time:
-                stages_by_time[plateau_start] = []
-            stages_by_time[plateau_start].append({
-                "tg_name": tg_name,
-                "stage": stage,
-                "target_rps": stage.get("target_rps", 0.0),
-            })
-    
-    # Проверяем каждую Thread Group отдельно, но сравниваем общий RPS со суммой целевых
-    for tg_name, tg_data in profile.get("thread_groups", {}).items():
-        tg_results = {
-            "name": tg_name,
-            "stages": [],
-            "status": "PASS",
-        }
-        
-        # Сортируем ступени по stage_idx для правильного отображения
-        sorted_stages = sorted(tg_data.get("stages", []), key=lambda x: x.get("stage_idx", 0))
-        for stage in sorted_stages:
-            stage_idx = stage["stage_idx"]
-            plateau_start = stage["plateau_start_s"]
-            plateau_end = stage["plateau_end_s"]
-            target_rps = stage["target_rps"]
-            threads = stage["threads"]
-            
-            print(f"Проверка {tg_name}, ступень {stage_idx} (плато t={plateau_start}-{plateau_end}s, без ramp)...")
-            
-            transaction_names = tg_data.get("transaction_names", [])
-            ev_kind, metrics_start_s, metrics_end_s, skip_reason = classify_plateau_evaluation(
-                plateau_start,
-                plateau_end,
+
+    if runner_ids:
+        n_run = float(len(runner_ids))
+        results["runner_ids"] = runner_ids
+        results["runner_count"] = len(runner_ids)
+        results["runners"] = {}
+        any_runner_fail = False
+        for rid in sorted(runner_ids):
+            comp = _compute_thread_group_results(
+                profile,
+                test_run_id,
                 test_start_time_ns,
                 test_end_time_ns,
-            )
-            
-            if ev_kind == "skip":
-                print(f"  [SKIP] {skip_reason}")
-                total_target_rps = target_rps
-                tg_results["stages"].append(
-                    {
-                        "stage_idx": stage_idx,
-                        "plateau_start_s": plateau_start,
-                        "plateau_end_s": plateau_end,
-                        "plateau_duration_s": 0,
-                        "target_rps": target_rps,
-                        "total_target_rps": total_target_rps,
-                        "actual_rps": 0.0,
-                        "deviation_pct": 0.0,
-                        "threads": threads,
-                        "status": "SKIP",
-                        "evaluation": "skip",
-                        "skip_reason": skip_reason,
-                        "samplers": {
-                            "all": {
-                                "mean_rps": 0.0,
-                                "mean_rps_by_intervals": 0.0,
-                                "total_requests": 0,
-                                "total_errors": 0,
-                                "avg_response_time_ms": 0.0,
-                                "pct95_response_time_ms": 0.0,
-                                "max_response_time_ms": 0.0,
-                            }
-                        },
-                        "total_requests": 0,
-                        "total_errors": 0,
-                        "error_percentage": 0.0,
-                        "avg_response_time_ms": 0.0,
-                        "pct95_response_time_ms": 0.0,
-                        "max_response_time_ms": 0.0,
-                        "expected_requests": 0,
-                        "actual_all_requests": 0,
-                    }
-                )
-                continue
-            
-            actual_metrics = get_actual_metrics(
-                test_run_id,
-                metrics_start_s,
-                metrics_end_s,
                 influx_url,
                 db_name,
                 username,
                 password,
-                test_start_time_ns,
+                tolerance_pct,
                 aggregation_interval,
-                thread_group_name=tg_name,
-                transaction_names=transaction_names,
+                runner_id=rid,
+                use_test_run_tag=True,
+                target_rps_multiplier=1.0,
+                log_label=f"runner={rid}",
             )
-            
-            if "all" in actual_metrics:
-                actual_rps_this_tg = actual_metrics["all"].get("mean_rps", 0.0)
-            else:
-                actual_rps_this_tg = 0.0
-            
-            total_target_rps = target_rps
-            
-            deviation_pct = 0.0
-            if target_rps > 0:
-                deviation_pct = abs((actual_rps_this_tg - target_rps) / target_rps * 100.0)
-            
-            rps_ok = deviation_pct <= tolerance_pct
-            if ev_kind == "partial":
-                stage_status = "PARTIAL" if rps_ok else "FAIL"
-            else:
-                stage_status = "PASS" if rps_ok else "FAIL"
-            
-            if stage_status == "FAIL":
-                tg_results["status"] = "FAIL"
-                results["overall_status"] = "FAIL"
-            
-            all_metrics = actual_metrics.get("all", {})
-            total_requests = all_metrics.get("total_requests", 0)
-            total_errors = all_metrics.get("total_errors", 0)
-            avg_response_time_ms = all_metrics.get("avg_response_time_ms", 0.0)
-            pct95_response_time_ms = all_metrics.get("pct95_response_time_ms", 0.0)
-            max_response_time_ms = all_metrics.get("max_response_time_ms", 0.0)
-            
-            total_all_requests = total_requests + total_errors
-            error_percentage = 0.0
-            if total_all_requests > 0:
-                error_percentage = (total_errors / total_all_requests) * 100.0
-            
-            plateau_duration_s = metrics_end_s - metrics_start_s
-            expected_requests_this_tg = int(target_rps * plateau_duration_s)
-            actual_all_requests = total_requests + total_errors
-            
-            stage_result = {
-                "stage_idx": stage_idx,
-                "plateau_start_s": plateau_start,
-                "plateau_end_s": plateau_end,
-                "metrics_window_start_s": metrics_start_s,
-                "metrics_window_end_s": metrics_end_s,
-                "plateau_duration_s": plateau_duration_s,
-                "target_rps": target_rps,
-                "total_target_rps": total_target_rps,
-                "actual_rps": actual_rps_this_tg,
-                "deviation_pct": deviation_pct,
-                "threads": threads,
-                "status": stage_status,
-                "evaluation": ev_kind,
-                "samplers": actual_metrics,
-                "total_requests": total_requests,
-                "total_errors": total_errors,
-                "error_percentage": error_percentage,
-                "avg_response_time_ms": avg_response_time_ms,
-                "pct95_response_time_ms": pct95_response_time_ms,
-                "max_response_time_ms": max_response_time_ms,
-                "expected_requests": expected_requests_this_tg,
-                "actual_all_requests": actual_all_requests,
+            results["runners"][rid] = {
+                "thread_groups": comp["thread_groups"],
+                "overall_status": comp["overall_status"],
             }
-            
-            tg_results["stages"].append(stage_result)
-        
-        results["thread_groups"][tg_name] = tg_results
-    
+            if comp["overall_status"] != "PASS":
+                any_runner_fail = True
+
+        agg = _compute_thread_group_results(
+            profile,
+            test_run_id,
+            test_start_time_ns,
+            test_end_time_ns,
+            influx_url,
+            db_name,
+            username,
+            password,
+            tolerance_pct,
+            aggregation_interval,
+            runner_id=None,
+            use_test_run_tag=True,
+            target_rps_multiplier=n_run,
+            log_label="кластер (все поды, цель = N × профиль инстанса)",
+        )
+        results["thread_groups"] = agg["thread_groups"]
+        cluster_ok = agg["overall_status"] == "PASS"
+        results["overall_status"] = (
+            "PASS" if (not any_runner_fail and cluster_ok) else "FAIL"
+        )
+        results["aggregate_cluster"] = {
+            "overall_status": agg["overall_status"],
+            "runner_count": len(runner_ids),
+            "description": "Суммарный факт jmeter по test_run сравнивается с целевым RPS × N (одинаковый JMX на N подах).",
+        }
+    else:
+        comp = _compute_thread_group_results(
+            profile,
+            test_run_id,
+            test_start_time_ns,
+            test_end_time_ns,
+            influx_url,
+            db_name,
+            username,
+            password,
+            tolerance_pct,
+            aggregation_interval,
+            runner_id=None,
+            use_test_run_tag=False,
+            target_rps_multiplier=1.0,
+            log_label="единый источник (без тега runner)",
+        )
+        results["thread_groups"] = comp["thread_groups"]
+        results["overall_status"] = comp["overall_status"]
+
     # Сохраняем время старта теста и профиль для использования в проверке критериев
     results["test_start_time_ns"] = test_start_time_ns
     results["test_end_time_ns"] = test_end_time_ns
     results["profile"] = profile
-    
-    results["has_skip_or_partial_stages"] = any(
-        s.get("status") in ("SKIP", "PARTIAL")
-        for tg in results["thread_groups"].values()
-        for s in tg.get("stages", [])
-    )
-    
+
+    results["has_skip_or_partial_stages"] = _any_skip_or_partial(results["thread_groups"])
+    if results.get("runners"):
+        results["has_skip_or_partial_stages"] = results["has_skip_or_partial_stages"] or any(
+            _any_skip_or_partial(r["thread_groups"]) for r in results["runners"].values()
+        )
+
     return results
 
 
@@ -1375,138 +1536,15 @@ def _format_ns_utc(ns: Optional[int]) -> str:
         return str(ns)
 
 
-def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
-    """Генерирует HTML отчёт."""
-    tol = float(results.get("tolerance_pct", 10.0))
-    coverage_warn = ""
-    if results.get("has_skip_or_partial_stages"):
-        coverage_warn = """
-    <div class="coverage-warn">
-        <strong>Внимание (ранняя остановка теста):</strong>
-        В таблицах ниже есть ступени <span class="status-SKIP">SKIP</span> (плато физически не достигнуто)
-        и/или <span class="status-PARTIAL">PARTIAL</span> (сравнение RPS и запросов выполнено только по обрезанному окну плато).
-        Это не то же самое, что <span class="status-FAIL">FAIL</span> из‑за превышения допустимого отклонения на полной ступени.
-        Общий статус относится только к ступеням, где проверка выполнялась.
-    </div>"""
-
-    test_start_disp = _format_ns_utc(results.get("test_start_time_ns"))
-    test_end_disp = _format_ns_utc(results.get("test_end_time_ns"))
-    if results.get("test_end_time_ns") is None:
-        end_line = (
-            "<strong>Конец теста по Influx:</strong> не определён — в <code>jmeter</code> нет последней точки с тегом "
-            "<code>test_run</code>, совпадающим с этим прогоном (ступени не помечаются SKIP/PARTIAL по времени остановки)."
-        )
-    else:
-        end_line = (
-            f"<strong>Конец теста по Influx</strong> (последняя точка <code>jmeter</code> с <code>test_run</code>): "
-            f"<code>{test_end_disp}</code>"
-        )
-    timing_lines = f"""    <p><strong>Порог отклонения RPS (эта проверка):</strong> {tol:g}%</p>
-    <p style="font-size:0.95em; color:#444;"><strong>Оценка старта теста:</strong> {test_start_disp}</p>
-    <p style="font-size:0.95em; color:#444;">{end_line}</p>
-"""
-
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Проверка профиля нагрузки - {results['test_run']}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        h1 {{ color: #333; }}
-        .status-PASS {{ color: green; font-weight: bold; }}
-        .status-FAIL {{ color: red; font-weight: bold; }}
-        .status-SKIP {{ color: #616161; font-weight: bold; }}
-        .status-PARTIAL {{ color: #e65100; font-weight: bold; }}
-        .coverage-warn {{
-            background-color: #fff8e1;
-            border-left: 4px solid #ff9800;
-            padding: 12px 16px;
-            margin: 16px 0;
-            border-radius: 4px;
-        }}
-        table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
-        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-        th {{ background-color: #f2f2f2; cursor: help; }}
-        th:hover {{ background-color: #e0e0e0; }}
-        /* Специальный стиль для заголовков сводной таблицы - перекрывает общий стиль */
-        .summary-table-header th {{
-            background-color: #4CAF50 !important;
-            color: white !important;
-            font-weight: bold !important;
-        }}
-        .summary-table-header th:hover {{
-            background-color: #45a049 !important;
-        }}
-        .deviation-good {{ color: green; }}
-        .deviation-warning {{ color: orange; }}
-        .deviation-bad {{ color: red; }}
-        tr:nth-child(even) {{ background-color: #f9f9f9; }}
-        tr.row-pass {{ background-color: #e8f5e9; }}
-        tr.row-fail {{ background-color: #ffebee; }}
-        tr.row-skip {{ background-color: #f5f5f5; color: #424242; }}
-        tr.row-partial {{ background-color: #fffde7; }}
-        tr.summary-row {{ background-color: #e3f2fd; font-weight: bold; border-top: 2px solid #2196F3; }}
-        .status-icon {{ font-size: 1.2em; margin-right: 5px; }}
-        .compact-number {{ font-size: 0.9em; }}
-    </style>
-</head>
-<body>
-    <h1>Проверка профиля нагрузки</h1>
-    <p><strong>Test Run ID:</strong> {results['test_run']}</p>
-    <p><strong>Время проверки:</strong> {results['check_time']}</p>
-{timing_lines}
-    <p><strong>Общий статус:</strong> <span class="status-{results['overall_status']}">{results['overall_status']}</span></p>
-{coverage_warn}
-    <h2>Результаты по Thread Groups</h2>
-    <div style="background-color: #f0f0f0; padding: 20px; margin: 20px 0; border-left: 4px solid #4CAF50; border-radius: 5px;">
-        <h4 style="margin-top: 0; color: #2c3e50;">Пояснения по расчетам RPS:</h4>
-        
-        <div style="margin: 15px 0; padding: 15px; background-color: #ffffff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h5 style="margin-top: 0; color: #2196F3;">1. Целевой RPS (эта Thread Group)</h5>
-            <p style="margin: 5px 0;"><strong>Когда рассчитывается:</strong> ДО теста (при парсинге JMX)</p>
-            <p style="margin: 5px 0;"><strong>Что показывает:</strong> Ожидаемый RPS для ЭТОЙ конкретной Thread Group</p>
-            <p style="margin: 5px 0;"><strong>Формула:</strong> <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">(Constant Throughput Timer в RPM × количество потоков ЭТОЙ группы) / 60</code></p>
-            <p style="margin: 5px 0;"><strong>Пример:</strong> CTT = 10 RPM, потоков = 10 → (10 × 10) / 60 = <strong>1.67 RPS</strong></p>
-            <p style="margin: 5px 0; color: #666; font-style: italic;">Это уже сумма всех потоков ЭТОЙ Thread Group. Если у вас 10 потоков, каждый делает 10 RPM, то всего эта Thread Group должна выдавать 100 RPM = 1.67 RPS.</p>
-        </div>
-        
-        <div style="margin: 15px 0; padding: 15px; background-color: #ffffff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h5 style="margin-top: 0; color: #2196F3;">2. Фактический RPS (эта Thread Group)</h5>
-            <p style="margin: 5px 0;"><strong>Когда рассчитывается:</strong> ПОСЛЕ теста (из InfluxDB)</p>
-            <p style="margin: 5px 0;"><strong>Что показывает:</strong> Реальный RPS, который был достигнут ЭТОЙ Thread Group за <strong>оцениваемое окно плато</strong> (полное из профиля или укороченное при ранней остановке и статусе PARTIAL).</p>
-            <p style="margin: 5px 0;"><strong>Источник данных:</strong> InfluxDB, measurement <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">jmeter</code> (JMeter Backend Listener). Для каждой Thread Group считаются только серии с именем транзакции <strong><code>_UC*</code></strong> (Transaction Controller): семплеры внутри уже входят в count родительской транзакции. Если в профиле (<code>load_profile</code>) для TG перечислены такие имена — в запросе OR по ним; если в профиле нет имён с префиксом <code>_UC</code>, используется условие <code>transaction =~ /^_UC.*/</code> в окне времени (при параллельных TG возможен суммарный учёт всех <code>_UC</code> в этот момент).</p>
-            <p style="margin: 5px 0;"><strong>Формула:</strong> <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">Общее количество успешных запросов / Длительность оцениваемого плато (сек)</code></p>
-            <p style="margin: 5px 0; color: #666; font-style: italic;">Успешные запросы: <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">statut = 'ok'</code>. Ошибки учитываются отдельно в колонках запросов и % ошибок.</p>
-        </div>
-        
-        <div style="margin: 15px 0; padding: 15px; background-color: #e8f4fd; border-left: 3px solid #2196F3; border-radius: 3px;">
-            <h5 style="margin-top: 0; color: #1565c0;">3. Статусы ступени (ранний стоп)</h5>
-            <p style="margin: 5px 0;"><strong>PASS / FAIL</strong> — полное окно плато по профилю; FAIL, если отклонение RPS &gt; {tol:g}%.</p>
-            <p style="margin: 5px 0;"><strong>PARTIAL</strong> — тест закончился внутри плато; RPS и «ожидаемые запросы» считаются по <strong>укороченной</strong> длительности; PARTIAL = по этому куску отклонение ≤ {tol:g}% (не путать с FAIL «не выдержали профиль» на полной ступени).</p>
-            <p style="margin: 5px 0;"><strong>SKIP</strong> — до плато этой ступени тест не дошёл; метрики не считаются, в общий FAIL не входит.</p>
-            <p style="margin: 5px 0; color: #666; font-style: italic;">Нужны время старта из данных и последняя точка <code>jmeter</code> с тегом <code>test_run</code> (см. блок выше). Иначе все ступени считаются по полному окну из профиля.</p>
-        </div>
-        
-        <div style="margin: 15px 0; padding: 15px; background-color: #fff3cd; border-left: 3px solid #ffc107; border-radius: 3px;">
-            <h5 style="margin-top: 0; color: #856404;">4. Отклонение % и порог</h5>
-            <p style="margin: 5px 0;"><strong>ВАЖНО:</strong> Отклонение считается для <strong>каждой Thread Group отдельно</strong>, а не для суммы всех групп!</p>
-            <p style="margin: 5px 0;"><strong>Формула отклонения:</strong> <code style="background-color: #fff8dc; padding: 2px 6px; border-radius: 3px;">|Фактический RPS этой TG - Целевой RPS этой TG| / Целевой RPS этой TG × 100%</code></p>
-            <p style="margin: 5px 0;"><strong>Пример:</strong> UC_01_Yandex: целевой RPS = 1.67, фактический RPS = 2.00 → отклонение = |2.00 - 1.67| / 1.67 × 100% = <strong>19.76%</strong></p>
-            <p style="margin: 5px 0;"><strong>Порог для PASS / FAIL по RPS (эта проверка):</strong> <span style="color: green; font-weight: bold;">PASS</span> если отклонение ≤ <strong>{tol:g}%</strong>, <span style="color: red; font-weight: bold;">FAIL</span> если отклонение &gt; <strong>{tol:g}%</strong> (задаётся аргументом скрипта или значением по умолчанию).</p>
-            <p style="margin: 5px 0; color: #666; font-style: italic;">Отклонение считается относительно целевого RPS ЭТОЙ конкретной Thread Group.</p>
-        </div>
-    </div>
-"""
-    
-    # Сортируем Thread Groups: сначала FAIL, потом PASS
+def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) -> str:
+    """Фрагмент HTML: таблицы по всем Thread Groups (один блок отчёта)."""
+    frags: List[str] = []
     sorted_tg_items = sorted(
-        results.get("thread_groups", {}).items(),
-        key=lambda x: (x[1].get("status") != "FAIL", x[0])
+        thread_groups.items(),
+        key=lambda x: (x[1].get("status") != "FAIL", x[0]),
     )
-    
     for tg_name, tg_data in sorted_tg_items:
-        html += f"""
+        frags.append(f"""
     <h3>{tg_name} - <span class="status-{tg_data['status']}">{tg_data['status']}</span></h3>
     <table>
         <tr>
@@ -1527,7 +1565,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             <th title="Максимальное время отклика за плато (мс). Может содержать выбросы (outliers)">Max RT<br/>(мс)</th>
             <th title="PASS/FAIL по RPS: порог {tol:g}%. Также PARTIAL (успех на укороченном плато) и SKIP (ступень не достигнута) — см. пояснения вверху отчёта.">Статус</th>
         </tr>
-"""
+""")
         # Сортируем ступени по stage_idx для правильного отображения
         sorted_stages = sorted(tg_data.get("stages", []), key=lambda x: x.get("stage_idx", 0))
         # Группируем по stage_idx, чтобы показывать каждую ступень только один раз
@@ -1634,7 +1672,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
                     row_class = "row-fail"
                     status_icon = "[FAIL]"
             
-            html += f"""
+            frags.append(f"""
         <tr class="{row_class}">
             <td>{stage['stage_idx']}</td>
             <td>{stage['plateau_start_s']}-{stage['plateau_end_s']}</td>
@@ -1653,7 +1691,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             <td>{max_rt_cell}</td>
             <td class="status-{stage['status']}"{status_title}>{status_icon} {stage['status']}</td>
         </tr>
-"""
+""")
         
         # Добавляем итоговую строку для Thread Group (SKIP не входят в суммы и средние)
         if tg_data.get("stages"):
@@ -1693,7 +1731,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             
             summary_status_icon = "[OK]" if tg_data['status'] == "PASS" else "[FAIL]"
             
-            html += f"""
+            frags.append(f"""
         <tr class="summary-row">
             <td><strong>Итого</strong></td>
             <td>-</td>
@@ -1712,11 +1750,166 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             <td><strong>{max_max_rt:.0f}</strong></td>
             <td class="status-{tg_data['status']}"><strong>{summary_status_icon} {tg_data['status']}</strong></td>
         </tr>
-"""
+""")
         
-        html += """
+        frags.append("""
     </table>
+""")
+    return "".join(frags)
+
+
+def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
+    """Генерирует HTML отчёт."""
+    tol = float(results.get("tolerance_pct", 10.0))
+    coverage_warn = ""
+    if results.get("has_skip_or_partial_stages"):
+        coverage_warn = """
+    <div class="coverage-warn">
+        <strong>Внимание (ранняя остановка теста):</strong>
+        В таблицах ниже есть ступени <span class="status-SKIP">SKIP</span> (плато физически не достигнуто)
+        и/или <span class="status-PARTIAL">PARTIAL</span> (сравнение RPS и запросов выполнено только по обрезанному окну плато).
+        Это не то же самое, что <span class="status-FAIL">FAIL</span> из‑за превышения допустимого отклонения на полной ступени.
+        Общий статус относится только к ступеням, где проверка выполнялась.
+    </div>"""
+
+    test_start_disp = _format_ns_utc(results.get("test_start_time_ns"))
+    test_end_disp = _format_ns_utc(results.get("test_end_time_ns"))
+    if results.get("test_end_time_ns") is None:
+        end_line = (
+            "<strong>Конец теста по Influx:</strong> не определён — в <code>jmeter</code> нет последней точки с тегом "
+            "<code>test_run</code>, совпадающим с этим прогоном (ступени не помечаются SKIP/PARTIAL по времени остановки)."
+        )
+    else:
+        end_line = (
+            f"<strong>Конец теста по Influx</strong> (последняя точка <code>jmeter</code> с <code>test_run</code>): "
+            f"<code>{test_end_disp}</code>"
+        )
+    timing_lines = f"""    <p><strong>Порог отклонения RPS (эта проверка):</strong> {tol:g}%</p>
+    <p style="font-size:0.95em; color:#444;"><strong>Оценка старта теста:</strong> {test_start_disp}</p>
+    <p style="font-size:0.95em; color:#444;">{end_line}</p>
 """
+
+    multi_note = ""
+    if results.get("runners"):
+        n = len(results["runners"])
+        multi_note = f"""
+        <div style="margin: 15px 0; padding: 15px; background-color: #e3f2fd; border-left: 3px solid #1976d2; border-radius: 3px;">
+            <h5 style="margin-top: 0; color: #0d47a1;">5. Несколько подов (тег <code>runner</code> в Influx)</h5>
+            <p style="margin: 5px 0;">Обнаружено подов: <strong>{n}</strong>. Ниже сначала таблицы <strong>по каждому поду</strong> (целевой RPS как в профиле для одного JMX), затем блок <strong>«Сводка кластера»</strong>: целевой RPS × {n}, факт — сумма метрик по всем подам (фильтр только <code>test_run</code>).</p>
+            <p style="margin: 5px 0;">Общий статус <strong>PASS</strong>, только если каждый под и сводка кластера укладываются в порог <strong>{tol:g}%</strong> по RPS.</p>
+        </div>
+"""
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Проверка профиля нагрузки - {results['test_run']}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        h1 {{ color: #333; }}
+        .status-PASS {{ color: green; font-weight: bold; }}
+        .status-FAIL {{ color: red; font-weight: bold; }}
+        .status-SKIP {{ color: #616161; font-weight: bold; }}
+        .status-PARTIAL {{ color: #e65100; font-weight: bold; }}
+        .coverage-warn {{
+            background-color: #fff8e1;
+            border-left: 4px solid #ff9800;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 4px;
+        }}
+        table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+        th {{ background-color: #f2f2f2; cursor: help; }}
+        th:hover {{ background-color: #e0e0e0; }}
+        /* Специальный стиль для заголовков сводной таблицы - перекрывает общий стиль */
+        .summary-table-header th {{
+            background-color: #4CAF50 !important;
+            color: white !important;
+            font-weight: bold !important;
+        }}
+        .summary-table-header th:hover {{
+            background-color: #45a049 !important;
+        }}
+        .deviation-good {{ color: green; }}
+        .deviation-warning {{ color: orange; }}
+        .deviation-bad {{ color: red; }}
+        tr:nth-child(even) {{ background-color: #f9f9f9; }}
+        tr.row-pass {{ background-color: #e8f5e9; }}
+        tr.row-fail {{ background-color: #ffebee; }}
+        tr.row-skip {{ background-color: #f5f5f5; color: #424242; }}
+        tr.row-partial {{ background-color: #fffde7; }}
+        tr.summary-row {{ background-color: #e3f2fd; font-weight: bold; border-top: 2px solid #2196F3; }}
+        .status-icon {{ font-size: 1.2em; margin-right: 5px; }}
+        .compact-number {{ font-size: 0.9em; }}
+    </style>
+</head>
+<body>
+    <h1>Проверка профиля нагрузки</h1>
+    <p><strong>Test Run ID:</strong> {results['test_run']}</p>
+    <p><strong>Время проверки:</strong> {results['check_time']}</p>
+{timing_lines}
+    <p><strong>Общий статус:</strong> <span class="status-{results['overall_status']}">{results['overall_status']}</span></p>
+{coverage_warn}
+    <h2>Результаты по Thread Groups</h2>
+    <div style="background-color: #f0f0f0; padding: 20px; margin: 20px 0; border-left: 4px solid #4CAF50; border-radius: 5px;">
+        <h4 style="margin-top: 0; color: #2c3e50;">Пояснения по расчетам RPS:</h4>
+        
+        <div style="margin: 15px 0; padding: 15px; background-color: #ffffff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h5 style="margin-top: 0; color: #2196F3;">1. Целевой RPS (эта Thread Group)</h5>
+            <p style="margin: 5px 0;"><strong>Когда рассчитывается:</strong> ДО теста (при парсинге JMX)</p>
+            <p style="margin: 5px 0;"><strong>Что показывает:</strong> Ожидаемый RPS для ЭТОЙ конкретной Thread Group</p>
+            <p style="margin: 5px 0;"><strong>Формула:</strong> <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">(Constant Throughput Timer в RPM × количество потоков ЭТОЙ группы) / 60</code></p>
+            <p style="margin: 5px 0;"><strong>Пример:</strong> CTT = 10 RPM, потоков = 10 → (10 × 10) / 60 = <strong>1.67 RPS</strong></p>
+            <p style="margin: 5px 0; color: #666; font-style: italic;">Это уже сумма всех потоков ЭТОЙ Thread Group. Если у вас 10 потоков, каждый делает 10 RPM, то всего эта Thread Group должна выдавать 100 RPM = 1.67 RPS.</p>
+        </div>
+        
+        <div style="margin: 15px 0; padding: 15px; background-color: #ffffff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h5 style="margin-top: 0; color: #2196F3;">2. Фактический RPS (эта Thread Group)</h5>
+            <p style="margin: 5px 0;"><strong>Когда рассчитывается:</strong> ПОСЛЕ теста (из InfluxDB)</p>
+            <p style="margin: 5px 0;"><strong>Что показывает:</strong> Реальный RPS, который был достигнут ЭТОЙ Thread Group за <strong>оцениваемое окно плато</strong> (полное из профиля или укороченное при ранней остановке и статусе PARTIAL).</p>
+            <p style="margin: 5px 0;"><strong>Источник данных:</strong> InfluxDB, measurement <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">jmeter</code> (JMeter Backend Listener). Для каждой Thread Group считаются только серии с именем транзакции <strong><code>_UC*</code></strong> (Transaction Controller): семплеры внутри уже входят в count родительской транзакции. Если в профиле (<code>load_profile</code>) для TG перечислены такие имена — в запросе OR по ним; если в профиле нет имён с префиксом <code>_UC</code>, используется условие <code>transaction =~ /^_UC.*/</code> в окне времени (при параллельных TG возможен суммарный учёт всех <code>_UC</code> в этот момент).</p>
+            <p style="margin: 5px 0;"><strong>Формула:</strong> <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">Общее количество успешных запросов / Длительность оцениваемого плато (сек)</code></p>
+            <p style="margin: 5px 0; color: #666; font-style: italic;">Успешные запросы: <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">statut = 'ok'</code>. Ошибки учитываются отдельно в колонках запросов и % ошибок.</p>
+        </div>
+        
+        <div style="margin: 15px 0; padding: 15px; background-color: #e8f4fd; border-left: 3px solid #2196F3; border-radius: 3px;">
+            <h5 style="margin-top: 0; color: #1565c0;">3. Статусы ступени (ранний стоп)</h5>
+            <p style="margin: 5px 0;"><strong>PASS / FAIL</strong> — полное окно плато по профилю; FAIL, если отклонение RPS &gt; {tol:g}%.</p>
+            <p style="margin: 5px 0;"><strong>PARTIAL</strong> — тест закончился внутри плато; RPS и «ожидаемые запросы» считаются по <strong>укороченной</strong> длительности; PARTIAL = по этому куску отклонение ≤ {tol:g}% (не путать с FAIL «не выдержали профиль» на полной ступени).</p>
+            <p style="margin: 5px 0;"><strong>SKIP</strong> — до плато этой ступени тест не дошёл; метрики не считаются, в общий FAIL не входит.</p>
+            <p style="margin: 5px 0; color: #666; font-style: italic;">Нужны время старта из данных и последняя точка <code>jmeter</code> с тегом <code>test_run</code> (см. блок выше). Иначе все ступени считаются по полному окну из профиля.</p>
+        </div>
+        
+        <div style="margin: 15px 0; padding: 15px; background-color: #fff3cd; border-left: 3px solid #ffc107; border-radius: 3px;">
+            <h5 style="margin-top: 0; color: #856404;">4. Отклонение % и порог</h5>
+            <p style="margin: 5px 0;"><strong>ВАЖНО:</strong> Отклонение считается для <strong>каждой Thread Group отдельно</strong>, а не для суммы всех групп!</p>
+            <p style="margin: 5px 0;"><strong>Формула отклонения:</strong> <code style="background-color: #fff8dc; padding: 2px 6px; border-radius: 3px;">|Фактический RPS этой TG - Целевой RPS этой TG| / Целевой RPS этой TG × 100%</code></p>
+            <p style="margin: 5px 0;"><strong>Пример:</strong> UC_01_Yandex: целевой RPS = 1.67, фактический RPS = 2.00 → отклонение = |2.00 - 1.67| / 1.67 × 100% = <strong>19.76%</strong></p>
+            <p style="margin: 5px 0;"><strong>Порог для PASS / FAIL по RPS (эта проверка):</strong> <span style="color: green; font-weight: bold;">PASS</span> если отклонение ≤ <strong>{tol:g}%</strong>, <span style="color: red; font-weight: bold;">FAIL</span> если отклонение &gt; <strong>{tol:g}%</strong> (задаётся аргументом скрипта или значением по умолчанию).</p>
+            <p style="margin: 5px 0; color: #666; font-style: italic;">Отклонение считается относительно целевого RPS ЭТОЙ конкретной Thread Group.</p>
+        </div>
+{multi_note}
+    </div>
+"""
+
+    if results.get("runners"):
+        for rid in sorted(results["runners"].keys()):
+            rinfo = results["runners"][rid]
+            html += (
+                f'    <h2>Под (runner): {escape(rid)} — '
+                f'<span class="status-{rinfo["overall_status"]}">{rinfo["overall_status"]}</span></h2>\n'
+                f'    <p style="color:#555;font-size:0.95em;">Целевой RPS — из профиля для <strong>одного</strong> экземпляра JMX; факт — только точки <code>jmeter</code> с этим <code>runner</code>.</p>\n'
+            )
+            html += _emit_thread_group_tables_html(rinfo["thread_groups"], tol)
+        nclus = len(results["runners"])
+        html += (
+            f'    <h2>Сводка кластера (все поды, N = {nclus})</h2>\n'
+            f'    <p style="color:#555;font-size:0.95em;">Фактический RPS — сумма по всем подам (фильтр <code>test_run</code>); целевой — значение из профиля × {nclus} (одинаковый план на каждом поде).</p>\n'
+        )
+
+    html += _emit_thread_group_tables_html(results["thread_groups"], tol)
     
     # Добавляем сводную таблицу по всем Thread Groups
     html += """
@@ -2137,6 +2330,25 @@ def main(argv: List[str]) -> None:
     print("\n" + "="*60)
     print(f"Общий статус: {results['overall_status']}")
     print("="*60)
+    if results.get("runners"):
+        for rid, rinfo in sorted(results["runners"].items()):
+            print(f"\n--- Под (runner): {rid} — {rinfo['overall_status']} ---")
+            for tg_name, tg_data in rinfo.get("thread_groups", {}).items():
+                print(f"\n{tg_name}: {tg_data['status']}")
+                sorted_stages = sorted(tg_data.get("stages", []), key=lambda x: x.get("stage_idx", 0))
+                stages_by_idx = {}
+                for stage in sorted_stages:
+                    sidx = stage.get("stage_idx", 0)
+                    if sidx not in stages_by_idx:
+                        stages_by_idx[sidx] = stage
+                for sidx in sorted(stages_by_idx.keys()):
+                    stage = stages_by_idx[sidx]
+                    print(
+                        f"  Ступень {stage['stage_idx']} [{stage.get('status', '?')}]: "
+                        f"целевой RPS = {stage['target_rps']:.2f}, факт = {stage['actual_rps']:.2f}, "
+                        f"отклонение = {stage['deviation_pct']:.2f}%"
+                    )
+        print(f"\n--- Сводка кластера (N={len(results['runners'])}) — {results.get('aggregate_cluster', {}).get('overall_status', '?')} ---")
     for tg_name, tg_data in results.get("thread_groups", {}).items():
         print(f"\n{tg_name}: {tg_data['status']}")
         # Сортируем ступени по stage_idx для правильного отображения

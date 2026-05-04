@@ -12,6 +12,8 @@
  * - InfluxDB URL и credentials можно задать через переменные (influx_url, influx_db, influx_user, influx_pass)
  *   или будут использованы значения по умолчанию
  * - Профиль должен быть заранее отправлен в InfluxDB через send_profile_to_influx.py
+ * - Тег runner: HOSTNAME / POD_NAME / getLocalHost (см. ниже); для Backend Listener задайте eventTags:
+ *   test_run=${test_run},runner=${__Property(runner,unknown)} — слушатель StageTracker должен идти в плане раньше Backend Listener.
  */
 
 import groovy.json.JsonSlurper
@@ -24,6 +26,24 @@ import java.util.Base64
 def normalizeThreadGroupName = { String name ->
     if (name == null) return ""
     return name.trim().replaceAll(/\s+/, "_")
+}
+
+// Идентификатор раннера (в Kubernetes обычно = имя Pod в HOSTNAME). Один раз за прогон.
+if (!props.get("runner")) {
+    String r = System.getenv("HOSTNAME")
+    if (!r) r = System.getenv("POD_NAME")
+    if (!r) {
+        try {
+            r = java.net.InetAddress.getLocalHost().getHostName()
+        } catch (Throwable ignored) {
+            r = null
+        }
+    }
+    if (!r) r = "unknown"
+    r = r.trim()
+    props.put("runner", r)
+    vars.put("runner", r)
+    log.info("StageTracker: runner=${r}")
 }
 
 // Получаем test_run ID
@@ -244,10 +264,13 @@ def sendStageEvent(String testRun, String tgName, def stage, def targetRps, Stri
         
         // Формируем строку в формате InfluxDB Line Protocol
         // Теги: пробел → "\ ", запятая → "\,". Литерал "\ " в исходнике — синтаксическая ошибка; "\\ " при копировании в JMX иногда теряет слэш. Используем \u005c (= \).
+        String runnerRaw = props.get("runner") ?: "unknown"
+        String runnerEsc = runnerRaw.replace(" ", "\u005c ").replace(",", "\u005c,")
         String line = String.format(
-            "load_stage_change,test_run=%s,thread_group=%s stage_idx=%d,threads=%d,target_rps=%.2f,plateau_start_s=%d,hold_s=%d %d",
+            "load_stage_change,test_run=%s,thread_group=%s,runner=%s stage_idx=%d,threads=%d,target_rps=%.2f,plateau_start_s=%d,hold_s=%d %d",
             testRun.replace(" ", "\u005c "),
             tgName.replace(" ", "\u005c ").replace(",", "\u005c,"),
+            runnerEsc,
             stage.stage_idx ?: 1,
             stage.threads ?: 0,
             (targetRps ?: 0.0) as double,

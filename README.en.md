@@ -39,6 +39,16 @@ So **`parse_jmx_profile`**, Influx, and **`check_load_profile`** line up without
 `prepare` → Influx **`load_profile`** + **`load_profile_samplers`** (expected profile). JMeter run → **`jmeter`** (sample metrics) + **`load_stage_change`** lines from **StageTracker** (stage transitions).  
 `report` reads the profile from Influx and compares to **`jmeter`** by `test_run` and `transaction` / TG name.
 
+### Multiple pods / injectors (`runner` tag in Influx)
+
+Same **`test_run`**, several JMeter instances (e.g. Kubernetes pods): set the **`runner`** tag in the **Backend Listener** (`eventTags`) and in **`load_stage_change`** lines from **StageTracker** — see **`StageTracker.groovy`** and **`SimpleLoadTest.jmx`** (pod hostname via `HOSTNAME` / `runner`).
+
+**`check_load_profile.py`** discovers every distinct **`runner`** for that `test_run` in **`jmeter`** and renders **one table block per runner**, then a **cluster summary**: target RPS = single-instance profile × **N**, actual = summed metrics across pods. **N** is not hard-coded (2, 3, 4, … — whatever distinct `runner` values exist).
+
+**Not implemented yet (future):** per-runner **`test_start_time_ns`**; today one global start time is used for all runners. If pods start far apart, RPS deviation at stage boundaries may be slightly worse for the lagging pod.
+
+If **`jmeter`** has no **`runner`** tag, the report behaves like a **single** source (backward compatible).
+
 ---
 
 ## Options A and B: what is the difference

@@ -356,7 +356,7 @@
         <stringProp name="scriptLanguage">groovy</stringProp>
       </JSR223Listener>
       <hashTree/>
-      <JSR223Listener guiclass="TestBeanGUI" testclass="JSR223Listener" testname="JSR223 Listener" enabled="true">
+      <JSR223Listener guiclass="TestBeanGUI" testclass="JSR223Listener" testname="JSR223 Listener">
         <stringProp name="cacheKey">true</stringProp>
         <stringProp name="filename"></stringProp>
         <stringProp name="parameters"></stringProp>
@@ -386,6 +386,24 @@ import java.util.Base64
 def normalizeThreadGroupName = { String name -&gt;
     if (name == null) return &quot;&quot;
     return name.trim().replaceAll(/\s+/, &quot;_&quot;)
+}
+
+// Идентификатор раннера (в Kubernetes обычно = имя Pod в HOSTNAME). Один раз за прогон — для Influx-тега runner и Backend Listener (eventTags).
+if (!props.get(&quot;runner&quot;)) {
+    String r = System.getenv(&quot;HOSTNAME&quot;)
+    if (!r) r = System.getenv(&quot;POD_NAME&quot;)
+    if (!r) {
+        try {
+            r = java.net.InetAddress.getLocalHost().getHostName()
+        } catch (Throwable ignored) {
+            r = null
+        }
+    }
+    if (!r) r = &quot;unknown&quot;
+    r = r.trim()
+    props.put(&quot;runner&quot;, r)
+    vars.put(&quot;runner&quot;, r)
+    log.info(&quot;StageTracker: runner=${r}&quot;)
 }
 
 // Получаем test_run ID
@@ -606,10 +624,13 @@ def sendStageEvent(String testRun, String tgName, def stage, def targetRps, Stri
         
         // Формируем строку в формате InfluxDB Line Protocol
         // Теги: пробел → &quot;\ &quot;, запятая → &quot;\,&quot;. Литерал &quot;\ &quot; в исходнике — синтаксическая ошибка; &quot;\\ &quot; при копировании в JMX иногда теряет слэш. Используем \u005c (= \).
+        String runnerRaw = props.get(&quot;runner&quot;) ?: &quot;unknown&quot;
+        String runnerEsc = runnerRaw.replace(&quot; &quot;, &quot;\u005c &quot;).replace(&quot;,&quot;, &quot;\u005c,&quot;)
         String line = String.format(
-            &quot;load_stage_change,test_run=%s,thread_group=%s stage_idx=%d,threads=%d,target_rps=%.2f,plateau_start_s=%d,hold_s=%d %d&quot;,
+            &quot;load_stage_change,test_run=%s,thread_group=%s,runner=%s stage_idx=%d,threads=%d,target_rps=%.2f,plateau_start_s=%d,hold_s=%d %d&quot;,
             testRun.replace(&quot; &quot;, &quot;\u005c &quot;),
             tgName.replace(&quot; &quot;, &quot;\u005c &quot;).replace(&quot;,&quot;, &quot;\u005c,&quot;),
+            runnerEsc,
             stage.stage_idx ?: 1,
             stage.threads ?: 0,
             (targetRps ?: 0.0) as double,
@@ -650,7 +671,7 @@ def sendStageEvent(String testRun, String tgName, def stage, def targetRps, Stri
         <stringProp name="scriptLanguage">groovy</stringProp>
       </JSR223Listener>
       <hashTree/>
-      <BackendListener guiclass="BackendListenerGui" testclass="BackendListener" testname="Backend Listener" enabled="true">
+      <BackendListener guiclass="BackendListenerGui" testclass="BackendListener" testname="Backend Listener">
         <elementProp name="arguments" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments">
           <collectionProp name="Arguments.arguments">
             <elementProp name="influxdbMetricsSender" elementType="Argument">
@@ -695,7 +716,7 @@ def sendStageEvent(String testRun, String tgName, def stage, def targetRps, Stri
             </elementProp>
             <elementProp name="eventTags" elementType="Argument">
               <stringProp name="Argument.name">eventTags</stringProp>
-              <stringProp name="Argument.value"></stringProp>
+              <stringProp name="Argument.value">test_run=${test_run},runner=${__Property(runner,unknown)}</stringProp>
               <stringProp name="Argument.metadata">=</stringProp>
             </elementProp>
           </collectionProp>
@@ -703,7 +724,7 @@ def sendStageEvent(String testRun, String tgName, def stage, def targetRps, Stri
         <stringProp name="classname">org.apache.jmeter.visualizers.backend.influxdb.InfluxdbBackendListenerClient</stringProp>
       </BackendListener>
       <hashTree/>
-      <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report" enabled="true">
+      <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report">
         <boolProp name="ResultCollector.error_logging">false</boolProp>
         <objProp>
           <name>saveConfig</name>
@@ -740,7 +761,7 @@ def sendStageEvent(String testRun, String tgName, def stage, def targetRps, Stri
         <stringProp name="filename"></stringProp>
       </ResultCollector>
       <hashTree/>
-      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="Summary Report" enabled="true">
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="Summary Report">
         <boolProp name="ResultCollector.error_logging">false</boolProp>
         <objProp>
           <name>saveConfig</name>
