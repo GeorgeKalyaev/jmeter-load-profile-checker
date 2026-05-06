@@ -123,6 +123,28 @@ def list_jmeter_runner_ids(
     return sorted(set(found))
 
 
+def list_runner_ids_from_meta(
+    test_run_id: str,
+    influx_url: str,
+    db_name: str,
+    username: str = None,
+    password: str = None,
+) -> List[str]:
+    """Fallback: список runner из measurement jmeter_runner_meta (JSR223 heartbeat)."""
+    safe = _influx_quoted_tag_value(test_run_id)
+    query = (
+        f'SHOW TAG VALUES FROM "jmeter_runner_meta" WITH KEY = "runner" '
+        f'WHERE "test_run" = \'{safe}\''
+    )
+    series = query_influx(query, influx_url, db_name, username, password)
+    found: List[str] = []
+    for s in series:
+        for row in s.get("values", []):
+            if len(row) >= 2 and row[1] is not None and str(row[1]).strip() != "":
+                found.append(str(row[1]).strip())
+    return sorted(set(found))
+
+
 def _tg_jmeter_transaction_condition(transaction_names: Optional[List[str]]) -> str:
     """
     Фильтр по полю transaction для метрик одной Thread Group в get_actual_metrics.
@@ -1251,14 +1273,28 @@ def check_profile_compliance(
     print(f"Загрузка событий переходов на ступени...")
     events = get_stage_events(test_run_id, influx_url, db_name, username, password)
 
-    runner_ids = list_jmeter_runner_ids(
+    jmeter_runner_ids = list_jmeter_runner_ids(
         test_run_id, influx_url, db_name, username, password
     )
-    use_test_run_tag = len(runner_ids) > 0
+    runner_ids = list(jmeter_runner_ids)
+    runner_source = "jmeter"
     if runner_ids:
         print(
             f"Раннеры (тег runner в jmeter): {len(runner_ids)} шт. — {', '.join(runner_ids)}"
         )
+    else:
+        meta_runner_ids = list_runner_ids_from_meta(
+            test_run_id, influx_url, db_name, username, password
+        )
+        if meta_runner_ids:
+            runner_ids = meta_runner_ids
+            runner_source = "jmeter_runner_meta"
+            print(
+                "[INFO] В measurement jmeter нет runner/test_run тегов; "
+                f"runner берём из jmeter_runner_meta: {len(runner_ids)} шт. — {', '.join(runner_ids)}"
+            )
+    has_jmeter_runner_tags = len(jmeter_runner_ids) > 0
+    use_test_run_tag = has_jmeter_runner_tags
     
     # Собираем все transaction_names из профиля для поиска данных
     all_transaction_names = []
@@ -1437,10 +1473,11 @@ def check_profile_compliance(
         "tolerance_pct": tolerance_pct,
     }
 
-    if runner_ids:
+    if runner_ids and has_jmeter_runner_tags:
         n_run = float(len(runner_ids))
         results["runner_ids"] = runner_ids
         results["runner_count"] = len(runner_ids)
+        results["runner_source"] = runner_source
         results["runners"] = {}
         any_runner_fail = False
         for rid in sorted(runner_ids):
@@ -1492,6 +1529,38 @@ def check_profile_compliance(
             "overall_status": agg["overall_status"],
             "runner_count": len(runner_ids),
             "description": "Суммарный факт jmeter по test_run сравнивается с целевым RPS × N (одинаковый JMX на N подах).",
+        }
+    elif runner_ids and not has_jmeter_runner_tags:
+        # Fallback для distributed-режима: N берём из jmeter_runner_meta (JSR223), сравнение только кластерное.
+        n_run = float(len(runner_ids))
+        comp = _compute_thread_group_results(
+            profile,
+            test_run_id,
+            test_start_time_ns,
+            test_end_time_ns,
+            influx_url,
+            db_name,
+            username,
+            password,
+            tolerance_pct,
+            aggregation_interval,
+            runner_id=None,
+            use_test_run_tag=False,
+            target_rps_multiplier=n_run,
+            log_label="кластер fallback (N из jmeter_runner_meta, без runner тегов в jmeter)",
+        )
+        results["thread_groups"] = comp["thread_groups"]
+        results["overall_status"] = comp["overall_status"]
+        results["runner_ids"] = runner_ids
+        results["runner_count"] = len(runner_ids)
+        results["runner_source"] = runner_source
+        results["aggregate_cluster"] = {
+            "overall_status": comp["overall_status"],
+            "runner_count": len(runner_ids),
+            "description": (
+                "Fallback cluster-mode: в measurement jmeter нет тегов runner/test_run; "
+                "число раннеров взято из jmeter_runner_meta, целевой RPS масштабируется на N."
+            ),
         }
     else:
         comp = _compute_thread_group_results(
@@ -1799,6 +1868,16 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             <p style="margin: 5px 0;">Общий статус <strong>PASS</strong>, только если каждый под и сводка кластера укладываются в порог <strong>{tol:g}%</strong> по RPS.</p>
         </div>
 """
+    elif results.get("aggregate_cluster") and results.get("runner_count", 0) > 1:
+        n = int(results.get("runner_count", 0))
+        src = escape(str(results.get("runner_source", "unknown")))
+        multi_note = f"""
+        <div style="margin: 15px 0; padding: 15px; background-color: #fff3e0; border-left: 3px solid #ef6c00; border-radius: 3px;">
+            <h5 style="margin-top: 0; color: #e65100;">5. Кластерный fallback-режим</h5>
+            <p style="margin: 5px 0;">В measurement <code>jmeter</code> не обнаружены теги <code>runner/test_run</code>, поэтому сравнение выполнено только на уровне кластера: целевой RPS × <strong>{n}</strong>, фактический RPS — суммарно по всем источникам.</p>
+            <p style="margin: 5px 0;">Число раннеров получено из measurement <code>{src}</code>. Разрез «по каждому поду» в этом режиме недоступен.</p>
+        </div>
+"""
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -1907,6 +1986,12 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         html += (
             f'    <h2>Сводка кластера (все поды, N = {nclus})</h2>\n'
             f'    <p style="color:#555;font-size:0.95em;">Фактический RPS — сумма по всем подам (фильтр <code>test_run</code>); целевой — значение из профиля × {nclus} (одинаковый план на каждом поде).</p>\n'
+        )
+    elif results.get("aggregate_cluster") and results.get("runner_count", 0) > 1:
+        nclus = int(results.get("runner_count", 0))
+        html += (
+            f'    <h2>Сводка кластера (fallback, N = {nclus})</h2>\n'
+            f'    <p style="color:#555;font-size:0.95em;">Пер-под таблицы недоступны: теги <code>runner</code> в measurement <code>jmeter</code> отсутствуют.</p>\n'
         )
 
     html += _emit_thread_group_tables_html(results["thread_groups"], tol)
@@ -2349,6 +2434,12 @@ def main(argv: List[str]) -> None:
                         f"отклонение = {stage['deviation_pct']:.2f}%"
                     )
         print(f"\n--- Сводка кластера (N={len(results['runners'])}) — {results.get('aggregate_cluster', {}).get('overall_status', '?')} ---")
+    elif results.get("aggregate_cluster") and results.get("runner_count", 0) > 1:
+        print(
+            f"\n--- Сводка кластера fallback "
+            f"(N={results.get('runner_count')}, source={results.get('runner_source', '?')}) — "
+            f"{results.get('aggregate_cluster', {}).get('overall_status', '?')} ---"
+        )
     for tg_name, tg_data in results.get("thread_groups", {}).items():
         print(f"\n{tg_name}: {tg_data['status']}")
         # Сортируем ступени по stage_idx для правильного отображения

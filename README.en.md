@@ -1,4 +1,4 @@
-# JMeter + InfluxDB load profile
+﻿# JMeter + InfluxDB load profile
 
 [Russian](README.md)
 
@@ -47,7 +47,7 @@ Same **`test_run`**, several JMeter instances (e.g. Kubernetes pods): set the **
 
 **Not implemented yet (future):** per-runner **`test_start_time_ns`**; today one global start time is used for all runners. If pods start far apart, RPS deviation at stage boundaries may be slightly worse for the lagging pod.
 
-If **`jmeter`** has no **`runner`** tag, the report behaves like a **single** source (backward compatible).
+If **`jmeter`** has no **`runner`** tag, the script tries **`jmeter_runner_meta`** (heartbeat from StageTracker). When N runners are found there, cluster fallback is enabled (target RPS is scaled by N); per-runner tables are unavailable.
 
 ---
 
@@ -220,3 +220,4 @@ Without **`test_run`** on **`jmeter`** points, end time is unknown — every sta
 What the `check_load_profile` output can look like (screenshot from this repo):
 
 ![Sample load profile check report](docs/images/load-profile-check-sample.png)
+

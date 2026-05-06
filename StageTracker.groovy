@@ -76,6 +76,22 @@ if (!props.get("stage_tracker_initialized")) {
     props.put("stage_tracker_initialized", "true")
 }
 
+// Метка присутствия раннера в Influx (для fallback-режима отчетов, если Backend Listener не пишет eventTags)
+String runner = props.get("runner") ?: "unknown"
+String runnerMetaSentKey = "runner_meta_sent_${testRun}_${runner}"
+if (!props.get(runnerMetaSentKey)) {
+    sendRunnerMeta(testRun, runner, influxUrl, influxDb, influxUser, influxPass)
+    props.put(runnerMetaSentKey, "true")
+}
+// Периодический heartbeat (раз в минуту), чтобы раннер был виден даже в длинных/нестабильных прогонах.
+String runnerMetaBeatKey = "runner_meta_last_ts_${testRun}_${runner}"
+long nowMs = System.currentTimeMillis()
+long lastBeatMs = props.get(runnerMetaBeatKey) ? props.get(runnerMetaBeatKey).toLong() : 0L
+if (nowMs - lastBeatMs >= 60000) {
+    sendRunnerMeta(testRun, runner, influxUrl, influxDb, influxUser, influxPass)
+    props.put(runnerMetaBeatKey, String.valueOf(nowMs))
+}
+
 // Получаем текущее время теста в секундах
 // Устанавливаем TESTSTART.MS при первом вызове, если он еще не установлен
 if (!props.get("TESTSTART.MS")) {
@@ -305,5 +321,43 @@ def sendStageEvent(String testRun, String tgName, def stage, def targetRps, Stri
         conn.disconnect()
     } catch (Exception e) {
         log.error("StageTracker: Ошибка отправки события в InfluxDB: ${e.message}", e)
+    }
+}
+
+/**
+ * Отправляет heartbeat раннера в отдельный measurement jmeter_runner_meta.
+ * Используется Python-отчетом как fallback, когда measurement jmeter не содержит тег runner.
+ */
+def sendRunnerMeta(String testRun, String runner, String url, String db, String user, String pass) {
+    try {
+        long timestampNs = System.currentTimeMillis() * 1_000_000
+        String safeTestRun = (testRun ?: "unknown").replace(" ", "\u005c ").replace(",", "\u005c,")
+        String safeRunner = (runner ?: "unknown").replace(" ", "\u005c ").replace(",", "\u005c,")
+        String line = String.format(
+            "jmeter_runner_meta,test_run=%s,runner=%s up=1i %d",
+            safeTestRun,
+            safeRunner,
+            timestampNs
+        )
+
+        String writeUrl = "${url}/write?db=${db}"
+        URL obj = new URL(writeUrl)
+        HttpURLConnection conn = (HttpURLConnection) obj.openConnection()
+        conn.setRequestMethod("POST")
+        conn.setDoOutput(true)
+        conn.setConnectTimeout(5000)
+        conn.setReadTimeout(5000)
+
+        String auth = "${user}:${pass}"
+        String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes())
+        conn.setRequestProperty("Authorization", "Basic ${encodedAuth}")
+        conn.getOutputStream().write(line.getBytes("UTF-8"))
+        int responseCode = conn.getResponseCode()
+        if (responseCode != 204) {
+            log.warn("StageTracker: jmeter_runner_meta unexpected response: ${responseCode}")
+        }
+        conn.disconnect()
+    } catch (Exception e) {
+        log.warn("StageTracker: jmeter_runner_meta send failed: ${e.message}")
     }
 }
