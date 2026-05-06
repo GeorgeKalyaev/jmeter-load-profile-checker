@@ -75,7 +75,29 @@ def _horizon_seconds(rows: List[Dict[str, Any]]) -> int:
 
 
 def _is_second_stable(s: int, rows: List[Dict[str, Any]], eps: float = 0.05) -> bool:
-    """True, если в течение секунды s суммарные потоки почти не меняются (не ramp)."""
+    """True, если секунда не пересекает ramp ни одной строки и сумма почти не меняется."""
+    # Жесткое правило: если хотя бы одна строка в ramp-up/ramp-down в этой секунде,
+    # это НЕ плато. Это устраняет ложные "короткие ступени" при очень пологом ramp-up,
+    # когда численная разница за секунду могла быть меньше eps.
+    sec_start = float(s)
+    sec_end = float(s + 1)
+    for r in rows:
+        delay = int(r["init_delay_s"])
+        ramp_up = int(r["ramp_up_s"])
+        hold = int(r["hold_s"])
+        ramp_down = int(r["ramp_down_s"])
+
+        ramp_up_start = float(delay)
+        ramp_up_end = float(delay + ramp_up)
+        hold_end = float(delay + ramp_up + hold)
+        ramp_down_end = float(delay + ramp_up + hold + ramp_down)
+
+        # Полуинтервалы [a,b) пересекаются, если max(a1,a2) < min(b1,b2)
+        in_ramp_up = ramp_up > 0 and max(sec_start, ramp_up_start) < min(sec_end, ramp_up_end)
+        in_ramp_down = ramp_down > 0 and max(sec_start, hold_end) < min(sec_end, ramp_down_end)
+        if in_ramp_up or in_ramp_down:
+            return False
+
     t0 = float(s) + 0.1
     t1 = float(s) + 0.9
     return abs(_total_threads_at(t0, rows) - _total_threads_at(t1, rows)) < eps
