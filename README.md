@@ -136,5 +136,5 @@ python jmeter_load_pipeline.py report --config influx_config_localhost.json
 
 ## Пример отчёта
 
-![Пример отчёта проверки профиля нагрузки](docs/images/load-profile-check-sample.png)
+![Пример отчёта проверки профиля нагрузки](docs/images/load-profile-check-sample-v2.png)
 

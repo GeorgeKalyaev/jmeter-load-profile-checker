@@ -136,5 +136,5 @@ To keep profile and metrics aligned:
 
 ## Example report
 
-![Sample load profile check report](docs/images/load-profile-check-sample.png)
+![Sample load profile check report](docs/images/load-profile-check-sample-v2.png)
 
