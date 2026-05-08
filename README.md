@@ -1,223 +1,140 @@
-﻿# Профиль нагрузки JMeter + InfluxDB
+﻿# JMeter Load Profile Checker
 
-[English](README.en.md)
+[English](README.en.md) · [Короткая версия](README.ru.md)
 
-Краткая инструкция: что запускать и в каком порядке.
+Проект сравнивает **ожидаемый профиль нагрузки** (из JMX/UTG) и **фактические метрики** в InfluxDB.
 
-### Настройка Influx — отдельный файл, по сути один раз
+## Главное правило
 
-Подключение к InfluxDB (`influx_url`, `influx_db`, `influx_user`, `influx_pass`, при необходимости `aggregation_interval`) задаётся **в одном JSON-файле**: скопируйте `influx_config.example.json` под своим именем (например `influx_config.local.json`), заполните значения **под ваш стенд** и храните файл локально (**не коммитьте** пароли). Дальше во всех командах указываете его через `--config путь/к/файлу.json`. **Менять исходный код Python не требуется** — скрипты читают параметры из этого JSON.
+Отчёт считает только **чистые плато**:
 
-Те же URL и учётные данные должны совпадать с тем, что в **Backend Listener** в JMX (и, если используете, с переменными Influx для **StageTracker** в плане).
+- учитываются интервалы, где суммарная нагрузка стабильна;
+- **ramp-up** и **ramp-down** в расчёт ступени не входят;
+- отклонения считаются только внутри окна `[plateau_start_s, plateau_end_s)`.
 
----
-
-## Структура JMX и соглашения по именам
-
-Чтобы **`parse_jmx_profile`**, Influx и **`check_load_profile`** сходились без ручной правки:
-
-1. **`test_run`** — в **Test Plan → User Defined Variables**. После **`jmeter_load_pipeline.py prepare`** значение пишется в файл JMX автоматически; в GUI откройте план заново, если правили его снаружи.
-
-2. **Имя Thread Group** (`testname`, например `UC_01_Group_List`) — логическое имя группы в отчёте. Внутри этой TG по возможности оберните сценарий в **Transaction Controller**, имя которого = **подчёркивание + то же имя, что у TG**:  
-   TG `UC_01_Group_List` → Transaction Controller **`_UC_01_Group_List`**.  
-   В Influx у Backend Listener тег **`transaction`** часто совпадает с именем транзакции; ведущий **`_`** — типичное соглашение JMeter для «сэмпла транзакции», чтобы отличать от отдельных HTTP-запросов.  
-   Если Transaction Controller **нет**, парсер для совместимости всё равно добавит в профиль и имя TG, и вариант **`_{имя_TG}`** для запросов к `jmeter`.
-
-3. **Имена HTTP Sampler** — должны начинаться с одного из префиксов из **`sampler_filter.json`** (по умолчанию только **`HTTP`**, например **`HTTP Request …`**). Иначе сэмплер не попадёт в `*.profile.json` и в сводку по SLA в отчёте. Другие типы (JDBC и т.д.) — добавьте префикс в **`allowed_sampler_prefixes`** в том же JSON.
-
-4. **StageTracker.groovy** — на уровне **Test Plan** (скрипт из репозитория, путь к файлу в JSR223 должен быть доступен). **Backend Listener** (InfluxDB Backend Listener) — тот же Influx (URL, БД, учётка), что в JSON конфиге Python. Переменная **`test_run`** в UDV должна совпадать с отправкой профиля и отчётом. Чтобы в measurement **`jmeter`** у точек появился **тег `test_run`** (нужен для времени окончания прогона и статусов **SKIP/PARTIAL** при раннем стопе), в параметре **`eventTags`** Backend Listener задайте, например: **`test_run=${test_run}`** (через запятую можно добавить и другие теги). Без этого отчёт по-прежнему считает RPS по окну из профиля, но не сможет обрезать ступени по факту остановки.
-
-5. **Ultimate Thread Group** — ступени нагрузки в `*.profile.json` сейчас собираются **только** для **`kg.apc.jmeter.threads.UltimateThreadGroup`**. Обычный **Thread Group** этим парсером в профиль **не** превращается (в примере `SimpleLoadTest.jmx` классические TG отключены). Для «лесенки» используйте UTG; симуляция суммарных потоков — в `utg_schedule.py`.
-
-6. **Constant Throughput Timer** — целевой RPS в отчёте считается как **(RPM × число потоков на ступени) / 60**, в духе режима «на поток» (см. комментарии в `send_profile_to_influx.py`). Если у вас другой calcMode CTT, цифра «целевой RPS» может не совпасть с фактом — тогда править формулу или план.
-
-7. **Метрики RPS по Thread Group в `check_load_profile`** — в Influx учитываются только серии с именем транзакции **`_UC*`** (Transaction Controller: семплеры внутри уже входят в count на уровне транзакции). Из `transaction_names` в профиле в запрос попадают **только** имена, начинающиеся с **`_UC`** (логическое **OR**). Если таких имён нет (в профиле только имена семплеров и т.п.), используется условие **`transaction =~ /^_UC.*/`** на всё окно времени (при нескольких параллельных TG в один момент возможен суммарный учёт всех `_UC`). Парсер по-прежнему собирает в профиль все имена TC и целей Module Controller — для согласованности имён и для других шагов.
-
-8. **Module Controller** внутри UTG (ссылка на фрагмент плана, в т.ч. на Transaction Controller в **отключённой** «библиотечной» Thread Group) — в `transaction_names` добавляется **последний сегмент** `node_path` (например **`_UC_01_Check_List`**). Парсер не исполняет план: путь в JMX статичен, поэтому целевое имя транзакции подхватывается даже если сценарий в XML лежит в выключенной группе. Иначе при пустом дереве UTG в профиле остались бы только `UC_01_Group_List` / `_UC_01_Group_List`, а в Influx — другой `transaction` → **0 запросов** и ложное отклонение.
-
-**Цепочка данных (кратко):**  
-`prepare` → в Influx уходят **`load_profile`** и **`load_profile_samplers`** (ожидаемый профиль). Запуск JMeter → **`jmeter`** (метрики сэмплов) и строки **`load_stage_change`** из **StageTracker** (смена ступеней).  
-`report` читает профиль из Influx и сверяет с **`jmeter`** по времени и тегу **`transaction`** (для TG — см. п.7). Совпадение **`test_run`** обязательно между профилем и UDV; тег **`test_run`** на точках **`jmeter`** желателен для корректной логики раннего стопа (см. п.4).
-
-### Несколько подов (тег `runner` в Influx)
-
-Один **`test_run`**, несколько экземпляров JMeter (например Pod в Kubernetes): задайте тег **`runner`** в **Backend Listener** (`eventTags`) и в строках **`load_stage_change`** из **StageTracker** — см. **`StageTracker.groovy`** и пример **`SimpleLoadTest.jmx`** (hostname пода через `HOSTNAME` / свойство `runner`).
-
-**`check_load_profile.py`** сам находит все значения **`runner`** для данного `test_run` в **`jmeter`** и строит **отдельный блок таблиц на каждый под**, затем **«Сводка кластера»**: целевой RPS = профиль одного инстанса × **N**, факт — сумма метрик по всем подам. Число **N** не фиксировано (2, 3, 4, … — сколько уникальных `runner` в данных).
-
-**Пока не делаем (на будущее):** своё время старта теста **на каждый** `runner`; сейчас для всех подов используется **одно** общее `test_start_time_ns`. При сильном рассинхроне старта у отстающего пода отклонение RPS на границах ступеней может быть чуть выше.
-
-Если в **`jmeter`** нет тега **`runner`**, скрипт пытается взять список раннеров из **`jmeter_runner_meta`** (heartbeat из StageTracker). Если найдено N раннеров, включается кластерный fallback: целевой RPS масштабируется на N; пер-под таблицы недоступны.
+Это ключевая логика проекта: сравниваем "профиль vs факт" только на стабильной нагрузке.
 
 ---
 
-## Вариант A и B: в чём разница
+## Быстрый старт (рекомендуемый путь)
 
-**Общее:** ни один скрипт **не запускает JMeter**. InfluxDB 1.x, база и пользователь — **ваша** инфраструктура (по документации Influx); в репозитории только JSON для подключения.
+### 0) Подготовьте конфиг Influx
 
-| | **Вариант A** | **Вариант B** |
-|---|----------------|---------------|
-| **Суть** | Один вход: **`jmeter_load_pipeline.py`** (`prepare` / `report`) | Те же шаги **отдельными** командами: `parse_jmx_profile` → `send_profile_to_influx` → `check_load_profile` |
-| **Конфиг Influx** | Везде **`--config путь.json`** | У `send_profile_to_influx` и `check_load_profile` конфиг — **последний позиционный** аргумент (без `--config`) |
-| **`test_run` в JMX** | После **`prepare`** подставляется **автоматически** | Задаёте **вручную** в User Defined Variables (если не копируете готовый JMX после A) |
-| **Когда удобен** | Обычная работа | Отладка отдельного шага, свой CI без оркестратора |
+Скопируйте `influx_config.example.json` в локальный файл, например `influx_config.local.json`, заполните:
+`influx_url`, `influx_db`, `influx_user`, `influx_pass` (опционально `aggregation_interval`).
 
-В примерах: план **`SimpleLoadTest.jmx`**, конфиг **`influx_config_localhost.json`**. Команды — из корня репозитория.
+Используйте этот файл во всех командах через `--config`.
 
----
-
-### Вариант A — по шагам (`jmeter_load_pipeline.py`)
-
-**Шаг 1 — подготовка прогона**
+### 1) Подготовка прогона
 
 ```text
 python jmeter_load_pipeline.py prepare SimpleLoadTest.jmx --config influx_config_localhost.json
 ```
 
-Внутри по порядку:
+Что делает `prepare`:
 
-1. **`parse_jmx_profile.py`** → **`SimpleLoadTest.profile.json`**. Для UTG ступени из симуляции (`utg_schedule.py`), поле `utg_schedule_mode`; иначе запасной режим «одна строка UTG = одна ступень».
-2. Новый **`test_run`** → файл **`test_run_id.txt`** (одна строка).
-3. Запись **`test_run`** в **User Defined Variables** в JMX на диске — открываете этот же файл в JMeter, руками ID не вводите.
-4. **`send_profile_to_influx.py`** — профиль в Influx (тот же JSON, что в `--config`).
+1. строит `SimpleLoadTest.profile.json` из JMX;
+2. генерирует `test_run` и пишет в `test_run_id.txt`;
+3. подставляет `test_run` в JMX (UDV);
+4. отправляет профиль в Influx (`load_profile`, `load_profile_samplers`).
 
-**Шаг 2 — нагрузочный тест в JMeter (только вы)**
+### 2) Запуск нагрузки
 
-Запуск плана (GUI или `jmeter.bat -n -t ...`). Убедитесь:
+Запустите JMeter план вручную (GUI или `jmeter.bat -n -t ...`).
 
-- **JSR223 Listener** + **`StageTracker.groovy`** на **Test Plan**.
-- **Backend Listener** → тот же Influx (URL, БД, учётка), что в JSON.
+Проверьте в плане:
 
-**Шаг 3 — отчёт после теста**
+- `StageTracker.groovy` подключен на уровне Test Plan;
+- Backend Listener пишет в тот же Influx, что указан в JSON.
 
-```text
-python jmeter_load_pipeline.py report --config influx_config_localhost.json
-```
-
-Берётся **`test_run`** из **`test_run_id.txt`**, вызывается **`check_load_profile.py`**, появляются **`load_profile_check_<test_run>.html`** и **`.json`**.
-
-**Итого:** **`prepare` → JMeter → `report`**.
-
----
-
-### Вариант B — по шагам (без оркестратора)
-
-Имеет смысл, если нужно вызвать только один скрипт или собрать цепочку в своём окружении.
-
-**Шаг 1** — JMX → профиль:
-
-```text
-python parse_jmx_profile.py SimpleLoadTest.jmx
-```
-
-Результат: **`SimpleLoadTest.profile.json`** (рядом **`sampler_filter.json`**).
-
-**Шаг 2** — задать **`test_run`**: придумайте ID (например `test_20260411_153045`) и при необходимости запишите **одной строкой** в **`test_run_id.txt`** (удобно для шага 5a ниже).
-
-**Шаг 3** — отправка профиля в Influx:
-
-```text
-python send_profile_to_influx.py SimpleLoadTest.profile.json test_20260411_153045 influx_config_localhost.json
-```
-
-Аргументы: **файл профиля**, **`test_run`**, **JSON-конфиг** (последний — путь к Influx).
-
-**Шаг 4** — в JMeter: **User Defined Variables** → переменная **`test_run`** = **тот же** ID. Сохраните JMX. (Если перед этим уже делали **вариант A `prepare`** для этого файла — шаг можно пропустить.)
-
-**Шаг 5** — запуск нагрузки в JMeter (как в варианте A).
-
-**Шаг 6** — отчёт, **один из двух способов**:
-
-- Явный ID:
-
-```text
-python check_load_profile.py test_20260411_153045 influx_config_localhost.json report.html 10.0
-```
-
-(третий аргумент — HTML, четвёртый — **допуск отклонения RPS в %**, по умолчанию **10**; можно опустить хвост, тогда имя файла и порог по умолчанию.)
-
-- Или, если в **`test_run_id.txt`** лежит тот же ID:
+### 3) Построение отчёта
 
 ```text
 python jmeter_load_pipeline.py report --config influx_config_localhost.json
 ```
 
----
-
-## На что обратить внимание
-
-- Если Influx при **`send_profile`** отвечает **`partial write: points beyond retention policy dropped`**, на стенде обычно жёсткий retention: старые версии записывали метки времени как «секунды сценария» (1970 год). Актуальный **`send_profile_to_influx.py`** ставит точкам время около текущего момента.
-- Если видите **`field type conflict`** (например `hold_s` integer vs float) — в БД уже зафиксирован тип поля от старых записей; актуальный скрипт шлёт те же поля как **float**, чтобы совпасть с типичным существующим схемой.
-- Один и тот же **`test_run`** при отправке профиля, в **User Defined Variables** в JMX и при отчёте.
-- `aggregation_interval` в JSON должен совпадать с **Sending interval** у **Backend Listener** в JMeter и с тем, как вы считаете RPS в Grafana (например `sum("count") / N` → `N`). В `SimpleLoadTest.jmx` интервал в JMX не задан явно — у Influx Backend Listener обычно **5 с** по умолчанию; в `influx_config_localhost.json` стоит `5.0`.
-- Для локального Influx на `localhost` можно использовать `influx_config_localhost.json` (учётка/пароль по умолчанию только для dev).
+Результат: `load_profile_check_<test_run>.html` и `.json`.
 
 ---
 
-## Логика отчёта: что считается «плато» и что сознательно отбрасывается
+## Как устроен расчёт в отчёте
 
-Ниже — **как устроен** `check_load_profile` и почему длительность «ступени» в HTML **не обязана** совпадать с колонкой **Hold** в Ultimate Thread Group построчно.
+Для каждой Thread Group и каждой ступени:
 
-### 1. Ultimate Thread Group и несколько строк
+- **Target RPS**: `(CTT RPM * threads_on_stage) / 60`;
+- **Actual RPS**: `ok_requests / plateau_duration_seconds`;
+- **Deviation %**: `abs(actual - target) / target * 100`.
 
-В типичной «лесенке» каждая **строка** UTG **добавляет** потоки к уже запущенным. Итоговая нагрузка по времени — это **сумма** вкладов всех строк (см. модуль `utg_schedule.py`). **Бизнес-ступень** профиля — это интервал, где **суммарное** число активных потоков **не меняется** (нет ramp-up/ramp-down по сумме), а не «одна строка таблицы = одна ступень».
+Где `ok_requests` — только `statut='ok'`; ошибки в числитель RPS не включаются.
 
-### 2. Окно плато `[plateau_start_s, plateau_end_s)`
+### Ранний стоп теста
 
-Для каждой такой ступени в `*.profile.json` задаётся полуинтервал времени **в секундах от старта теста**:
+Если тест остановился раньше и в `jmeter` есть тег `test_run`, отчёт умеет:
 
-- **Начало** — когда суммарная нагрузка уже вышла на **ровный** участок после ramp-up **к этой** сумме потоков.
-- **Конец** — момент **до** начала следующего изменения суммы (например, до старта ramp-up следующей строки). Интервал в отчёте обычно трактуется как **`[start, end)`** — правая граница **не включается**.
+- помечать недостигнутые ступени как `SKIP`;
+- считать оборванную ступень как `PARTIAL` (по укороченному окну).
 
-**Интервалы ramp-up / ramp-down между ступенями в это окно не попадают.** Например, 20 с разгона ко второй «волне» — отдельный отрезок; он не считается ни плато предыдущей ступени, ни плато следующей.
-
-### 3. Что считает `check_load_profile.py` внутри плато
-
-Для каждой Thread Group и каждой ступени из профиля в Influx (measurement `jmeter`, теги вроде `test_run`, `transaction` / имя сэмплера) за **только этот** временной отрезок:
-
-| Величина | Смысл |
-|----------|--------|
-| **Целевой RPS** | Из JMX: `(Constant Throughput Timer в RPM × число потоков этой TG) / 60` — ожидание **для этой TG**. |
-| **Фактический RPS** | `число успешных запросов (statut = 'ok') / длительность плато в секундах`. Ошибки и не-ok в числитель RPS **не входят**. |
-| **Отклонение %** | `|факт − цель| / цель × 100%` по **этой TG**; порог PASS/FAIL задаётся **аргументом** `check_load_profile` (по умолчанию **10%**), в HTML он выводится явно. |
-| **Ожидаемое число запросов** | `целевой RPS × длительность оцениваемого плато` — для полной ступени это `(plateau_end_s − plateau_start_s)`; при **PARTIAL** длительность укорочена (см. ниже). |
-
-Длительность плато в секундах — это **`end − start`**, а не сырой Hold из одной строки UTG, если расписание из нескольких строк даёт другую геометрию (см. выше).
-
-### 4. Ранний стоп теста (SKIP / PARTIAL)
-
-Если прогон **завершился до конца** профиля (ручной Stop в JMeter и т.д.) и в **`jmeter`** есть **последняя точка с тегом `test_run`**, отчёт может:
-
-- пометить **SKIP** ступени, до плато которых тест не дошёл (в общий FAIL они **не** входят);
-- пометить **PARTIAL** ступень, на которой тест оборвался **внутри** плато: RPS и «ожидаемые запросы» считаются по **укороченному** интервалу; при попадании в допуск — **PARTIAL**, иначе **FAIL**.
-
-Без тега **`test_run`** на точках **`jmeter`** время окончания не определяется — все ступени считаются по **полному** окну из профиля (как раньше). См. **`eventTags`** в **п.4** раздела «Структура JMX и соглашения по именам».
-
-### 5. События ступеней в Influx
-
-`StageTracker.groovy` пишет служебные события (например, смена ступени) для привязки времени; отчёт может использовать их для уточнения **начала** теста. **Границы плато для сверки RPS** берутся из **профиля** (распарсенный JMX + симуляция UTG), а не «нарезаются по глазу» из графика. При наличии времени окончания по **`jmeter`** эти границы **дополнительно** ограничиваются фактом прогона (см. подраздел **«4. Ранний стоп»** выше).
+Без `test_run` в `jmeter` ранний стоп корректно учесть нельзя.
 
 ---
 
-## Состав репозитория
+## Multi-pod / multi-runner
+
+Один `test_run`, несколько инжекторов (pod/VM):
+
+- для per-runner аналитики нужен тег `runner` в `jmeter`;
+- отчёт строит блок таблиц по каждому `runner`, затем `Cluster Summary`.
+
+### Fallback режим
+
+Если в `jmeter` нет тега `runner`, используется `jmeter_runner_meta` (heartbeat из `StageTracker.groovy`):
+
+- определяется число раннеров `N`;
+- target RPS масштабируется на `N`;
+- per-runner таблицы недоступны, доступна только агрегированная сводка.
+
+---
+
+## Обязательные соглашения по JMX
+
+Чтобы данные сходились без ручных правок:
+
+1. `test_run` в UDV должен совпадать между prepare / запуском / отчётом.
+2. Для бизнес-метрики используйте Transaction Controller вида `_UC_*`.
+3. В `sampler_filter.json` должны быть нужные префиксы sampler-имен.
+4. Для ступеней используется только `UltimateThreadGroup`.
+5. `aggregation_interval` в JSON должен соответствовать интервалу Backend Listener.
+
+---
+
+## Компоненты репозитория
 
 | Файл | Назначение |
-|------|------------|
-| `jmeter_load_pipeline.py` | Точка входа: `prepare` / `report` (в т.ч. запись `test_run` в JMX) |
-| `parse_jmx_profile.py` | JMX → `*.profile.json` |
-| `utg_schedule.py` | Симуляция UTG: интервалы «ровного» суммарного числа потоков |
-| `send_profile_to_influx.py` | Профиль в Influx |
-| `check_load_profile.py` | Отчёт HTML/JSON по `test_run` |
-| `StageTracker.groovy` | Ступени → события в Influx (JSR223 Listener) |
-| `sampler_filter.json` | Префиксы имён сэмплеров для парсера (по умолчанию `HTTP`) |
-| `influx_config.example.json` | Шаблон конфигурации |
-| `influx_config_localhost.json` | Пример для локального Influx |
-| `SimpleLoadTest.jmx` | Пример плана (3×UTG, Backend Listener, StageTracker) |
-| `docs/images/load-profile-check-sample.png` | Иллюстрация для README |
+|---|---|
+| `jmeter_load_pipeline.py` | Оркестратор `prepare` / `report` |
+| `parse_jmx_profile.py` | JMX -> `*.profile.json` |
+| `utg_schedule.py` | Выделение чистых плато UTG |
+| `send_profile_to_influx.py` | Отправка профиля в Influx |
+| `check_load_profile.py` | Генерация HTML/JSON отчёта |
+| `StageTracker.groovy` | Stage events + runner heartbeat |
+| `SimpleLoadTest.jmx` | Эталонный пример плана |
 
-### Пример HTML-отчёта
+---
 
-Так может выглядеть итоговый отчёт `check_load_profile` (скрин из репозитория):
+## Диагностика частых проблем
+
+- `partial write: points beyond retention policy dropped`:
+  скрипт/данные используют некорректные timestamps для вашего retention.
+- `field type conflict`:
+  в measurement ранее зафиксирован другой тип поля.
+- "Отклонение 100% при 2+ подах":
+  обычно нет тега `runner` в `jmeter`, проверьте fallback и event tags.
+- "Ступени разбились странно":
+  убедитесь, что анализируется UTG и сравнение идёт именно по плато.
+
+---
+
+## Пример отчёта
 
 ![Пример отчёта проверки профиля нагрузки](docs/images/load-profile-check-sample.png)
 
