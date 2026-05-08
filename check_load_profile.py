@@ -625,27 +625,6 @@ def get_actual_metrics(
                 except (ValueError, TypeError):
                     continue
     
-    # Вычисляем фактический RPS как total_requests / duration
-    # Это более точный способ, чем среднее по интервалам
-    duration_seconds = end_time_s - start_time_s
-    if duration_seconds > 0:
-        actual_rps = total_requests / duration_seconds
-    else:
-        actual_rps = 0.0
-    
-    # Сохраняем оба значения для совместимости
-    metrics["all"] = {
-        "mean_rps": actual_rps,  # Используем правильный расчет
-        "total_requests": total_requests
-    }
-    
-    # Также сохраняем среднее по интервалам для справки (если нужно)
-    if rps_values:
-        mean_rps_by_intervals = sum(rps_values) / len(rps_values)
-        metrics["all"]["mean_rps_by_intervals"] = mean_rps_by_intervals
-    else:
-        metrics["all"]["mean_rps_by_intervals"] = 0.0
-    
     # Запрашиваем общее количество ошибок за весь период
     # Если указан thread_group_name, считаем ошибки только для этой Thread Group
     # Иначе считаем общие ошибки для всех групп
@@ -677,6 +656,34 @@ def get_actual_metrics(
                     total_errors += int(float(row[1]))
                 except (ValueError, TypeError):
                     continue
+
+    # Фактический RPS для проверки профиля:
+    # учитываем все запросы (успешные + с ошибками), чтобы интенсивность
+    # отражала реальную поданную нагрузку, а не только quality-срез.
+    duration_seconds = end_time_s - start_time_s
+    total_requests_including_errors = total_requests + total_errors
+    if duration_seconds > 0:
+        actual_rps_all = total_requests_including_errors / duration_seconds
+        actual_rps_ok = total_requests / duration_seconds
+    else:
+        actual_rps_all = 0.0
+        actual_rps_ok = 0.0
+
+    # Сохраняем оба значения для совместимости
+    metrics["all"] = {
+        "mean_rps": actual_rps_all,
+        "mean_rps_all": actual_rps_all,
+        "mean_rps_ok": actual_rps_ok,
+        "total_requests": total_requests,
+        "total_requests_including_errors": total_requests_including_errors,
+    }
+
+    # Также сохраняем среднее по интервалам для справки (если нужно)
+    if rps_values:
+        mean_rps_by_intervals = sum(rps_values) / len(rps_values)
+        metrics["all"]["mean_rps_by_intervals"] = mean_rps_by_intervals
+    else:
+        metrics["all"]["mean_rps_by_intervals"] = 0.0
     
     # Запрашиваем метрики времени отклика за весь период
     # Если указан thread_group_name, считаем только для этой Thread Group
@@ -1131,7 +1138,11 @@ def _compute_thread_group_results(
                         "target_rps_one_instance": base_target_rps,
                         "total_target_rps": effective_target_rps,
                         "actual_rps": 0.0,
+                        "actual_rps_all": 0.0,
+                        "actual_rps_ok": 0.0,
                         "deviation_pct": 0.0,
+                        "deviation_pct_all": 0.0,
+                        "deviation_pct_ok": 0.0,
                         "threads": threads_display,
                         "threads_one_instance": threads_inst,
                         "status": "SKIP",
@@ -1177,17 +1188,26 @@ def _compute_thread_group_results(
             )
 
             if "all" in actual_metrics:
-                actual_rps_this_tg = actual_metrics["all"].get("mean_rps", 0.0)
+                actual_rps_all_this_tg = actual_metrics["all"].get(
+                    "mean_rps_all",
+                    actual_metrics["all"].get("mean_rps", 0.0),
+                )
+                actual_rps_ok_this_tg = actual_metrics["all"].get("mean_rps_ok", 0.0)
             else:
-                actual_rps_this_tg = 0.0
+                actual_rps_all_this_tg = 0.0
+                actual_rps_ok_this_tg = 0.0
 
-            deviation_pct = 0.0
+            deviation_pct_all = 0.0
+            deviation_pct_ok = 0.0
             if effective_target_rps > 0:
-                deviation_pct = abs(
-                    (actual_rps_this_tg - effective_target_rps) / effective_target_rps * 100.0
+                deviation_pct_all = abs(
+                    (actual_rps_all_this_tg - effective_target_rps) / effective_target_rps * 100.0
+                )
+                deviation_pct_ok = abs(
+                    (actual_rps_ok_this_tg - effective_target_rps) / effective_target_rps * 100.0
                 )
 
-            rps_ok = deviation_pct <= tolerance_pct
+            rps_ok = deviation_pct_all <= tolerance_pct
             if ev_kind == "partial":
                 stage_status = "PARTIAL" if rps_ok else "FAIL"
             else:
@@ -1206,8 +1226,10 @@ def _compute_thread_group_results(
 
             total_all_requests = total_requests + total_errors
             error_percentage = 0.0
+            success_percentage = 0.0
             if total_all_requests > 0:
                 error_percentage = (total_errors / total_all_requests) * 100.0
+                success_percentage = (total_requests / total_all_requests) * 100.0
 
             plateau_duration_s = metrics_end_s - metrics_start_s
             expected_requests_this_tg = int(effective_target_rps * plateau_duration_s)
@@ -1223,8 +1245,12 @@ def _compute_thread_group_results(
                 "target_rps": effective_target_rps,
                 "target_rps_one_instance": base_target_rps,
                 "total_target_rps": effective_target_rps,
-                "actual_rps": actual_rps_this_tg,
-                "deviation_pct": deviation_pct,
+                "actual_rps": actual_rps_all_this_tg,
+                "actual_rps_all": actual_rps_all_this_tg,
+                "actual_rps_ok": actual_rps_ok_this_tg,
+                "deviation_pct": deviation_pct_all,
+                "deviation_pct_all": deviation_pct_all,
+                "deviation_pct_ok": deviation_pct_ok,
                 "threads": threads_display,
                 "threads_one_instance": threads_inst,
                 "status": stage_status,
@@ -1232,6 +1258,7 @@ def _compute_thread_group_results(
                 "samplers": actual_metrics,
                 "total_requests": total_requests,
                 "total_errors": total_errors,
+                "success_percentage": success_percentage,
                 "error_percentage": error_percentage,
                 "avg_response_time_ms": avg_response_time_ms,
                 "pct95_response_time_ms": pct95_response_time_ms,
@@ -1620,15 +1647,20 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
             <th>Ступень</th>
             <th>Время (сек)</th>
             <th title="Ожидаемый RPS для ЭТОЙ Thread Group = (CTT в RPM × потоки ЭТОЙ группы) / 60">Целевой RPS<br/>(эта Thread Group)</th>
-            <th title="Реальный RPS, достигнутый ЭТОЙ Thread Group за период плато">Фактический RPS<br/>(эта Thread Group)</th>
-            <th title="Отклонение для ЭТОЙ Thread Group = |Фактический RPS этой TG - Целевой RPS этой TG| / Целевой RPS этой TG × 100%">Отклонение %</th>
+            <th title="Реальный RPS по успешным запросам (statut='ok') для ЭТОЙ Thread Group за период плато">Факт. RPS OK<br/>(эта TG)</th>
+            <th title="Отклонение по успешным запросам: |Факт. RPS OK - Целевой RPS| / Целевой RPS × 100%">Отклонение OK %</th>
+            <th title="Реальный RPS по всем запросам (успешные + ошибки) для ЭТОЙ Thread Group за период плато">Факт. RPS ALL<br/>(эта TG)</th>
+            <th title="Отклонение по всем запросам: |Факт. RPS ALL - Целевой RPS| / Целевой RPS × 100%">Отклонение ALL %</th>
             <th>Потоков</th>
             <th title="Длительность плато в секундах">Длительность<br/>(сек)</th>
             <th title="Общее количество успешных запросов за период плато">Запросов<br/>(успешных)</th>
             <th title="Общее количество запросов с ошибками за период плато">Запросов<br/>(с ошибками)</th>
-            <th title="Процент ошибок = (ошибки / (успешные + ошибки)) × 100%">% Ошибок</th>
+            <th title="Процент успешных = (успешные / (успешные + ошибки)) × 100%">% Успешных</th>
+            <th title="Процент неуспешных = (ошибки / (успешные + ошибки)) × 100%">% Неуспешных</th>
             <th title="Ожидаемое число запросов = целевой RPS × длительность оцениваемого плато (полный hold или укороченный интервал при PARTIAL)">Ожидаемое<br/>запросов</th>
             <th title="Фактическое количество запросов = Успешные + Ошибки">Фактическое<br/>запросов</th>
+            <th title="Отклонение по количеству запросов = |Фактическое - Ожидаемое| / Ожидаемое × 100%">Откл. запросов %</th>
+            <th title="Статус по количеству запросов (информационный): PASS ≤ 5%, WARN ≤ 10%, FAIL > 10%">Статус<br/>запросов</th>
             <th title="Среднее время отклика всех запросов за плато (мс)">Avg RT<br/>(мс)</th>
             <th title="95-й перцентиль времени отклика (мс)">P95 RT<br/>(мс)</th>
             <th title="Максимальное время отклика за плато (мс). Может содержать выбросы (outliers)">Max RT<br/>(мс)</th>
@@ -1650,7 +1682,12 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
             row_status = stage.get("status", "PASS")
             total_requests = stage.get("total_requests", 0)
             total_errors = stage.get("total_errors", 0)
+            success_percentage = stage.get("success_percentage", 0.0)
             error_percentage = stage.get("error_percentage", 0.0)
+            deviation_ok_pct = stage.get("deviation_pct_ok", 0.0)
+            deviation_all_pct = stage.get("deviation_pct_all", stage.get("deviation_pct", 0.0))
+            actual_rps_ok = stage.get("actual_rps_ok", 0.0)
+            actual_rps_all = stage.get("actual_rps_all", stage.get("actual_rps", 0.0))
             plateau_duration_s = stage.get("plateau_duration_s", 0)
             expected_requests = stage.get("expected_requests", 0)
             actual_all_requests = stage.get("actual_all_requests", 0)
@@ -1663,35 +1700,51 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
             
             if row_status == "SKIP":
                 deviation_class = ""
-                deviation_cell = "—"
-                actual_rps_cell = "—"
+                deviation_ok_cell = "—"
+                actual_rps_ok_cell = "—"
+                deviation_all_cell = "—"
+                actual_rps_all_cell = "—"
                 plateau_dur_cell = "—"
                 req_ok_cell = "—"
                 req_err_cell = "—"
+                succ_pct_cell = "—"
                 err_pct_cell = "—"
                 exp_req_cell = "—"
                 act_all_cell = "—"
+                req_dev_cell = "—"
+                req_status_cell = "—"
                 avg_rt_cell = "—"
                 p95_cell = "—"
                 max_rt_cell = "—"
                 requests_diff_class = ""
+                req_status_class = ""
                 errors_class = ""
+                success_percentage_class = ""
                 error_percentage_class = ""
                 row_class = "row-skip"
                 status_icon = "[—]"
             else:
                 deviation_class = "deviation-good"
-                if stage["deviation_pct"] > 20:
+                if deviation_all_pct > 20:
                     deviation_class = "deviation-bad"
-                elif stage["deviation_pct"] > 10:
+                elif deviation_all_pct > 10:
                     deviation_class = "deviation-warning"
-                deviation_cell = f"{stage['deviation_pct']:.2f}%"
-                actual_rps_cell = f"{stage['actual_rps']:.2f}"
+                deviation_ok_cell = f"{deviation_ok_pct:.2f}%"
+                actual_rps_ok_cell = f"{actual_rps_ok:.2f}"
+                deviation_all_cell = f"{deviation_all_pct:.2f}%"
+                actual_rps_all_cell = f"{actual_rps_all:.2f}"
                 plateau_dur_cell = str(plateau_duration_s)
                 req_ok_cell = f"<strong>{total_requests:,}</strong>"
                 errors_class = "deviation-bad" if total_errors > 0 else ""
                 req_err_cell = f"<strong>{total_errors:,}</strong>"
-                
+
+                success_percentage_class = "deviation-good"
+                if success_percentage < 95.0:
+                    success_percentage_class = "deviation-bad"
+                elif success_percentage < 99.0:
+                    success_percentage_class = "deviation-warning"
+                succ_pct_cell = f"<strong>{success_percentage:.2f}%</strong>"
+
                 error_percentage_class = "deviation-good"
                 if error_percentage > 5.0:
                     error_percentage_class = "deviation-bad"
@@ -1708,7 +1761,20 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
                         requests_diff_class = "deviation-bad"
                     elif requests_diff_pct > 5.0:
                         requests_diff_class = "deviation-warning"
+                else:
+                    requests_diff_pct = 0.0
                 act_all_cell = f"{actual_all_requests:,}"
+                req_dev_cell = f"{requests_diff_pct:.2f}%"
+
+                req_status = "PASS"
+                req_status_class = "status-PASS"
+                if requests_diff_pct > 10.0:
+                    req_status = "FAIL"
+                    req_status_class = "status-FAIL"
+                elif requests_diff_pct > 5.0:
+                    req_status = "WARN"
+                    req_status_class = "status-PARTIAL"
+                req_status_cell = f"{req_status}"
                 
                 avg_rt_class = "deviation-good"
                 if avg_response_time_ms > 3000:
@@ -1746,15 +1812,20 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
             <td>{stage['stage_idx']}</td>
             <td>{stage['plateau_start_s']}-{stage['plateau_end_s']}</td>
             <td><strong>{stage['target_rps']:.2f}</strong></td>
-            <td>{actual_rps_cell}</td>
-            <td class="{deviation_class}">{deviation_cell}</td>
+            <td>{actual_rps_ok_cell}</td>
+            <td class="{deviation_class}">{deviation_ok_cell}</td>
+            <td>{actual_rps_all_cell}</td>
+            <td class="{deviation_class}">{deviation_all_cell}</td>
             <td>{stage['threads']}</td>
             <td>{plateau_dur_cell}</td>
             <td>{req_ok_cell}</td>
             <td class="{errors_class}">{req_err_cell}</td>
+            <td class="{success_percentage_class}">{succ_pct_cell}</td>
             <td class="{error_percentage_class}">{err_pct_cell}</td>
             <td>{exp_req_cell}</td>
             <td class="{requests_diff_class}">{act_all_cell}</td>
+            <td class="{requests_diff_class}">{req_dev_cell}</td>
+            <td class="{req_status_class}">{req_status_cell}</td>
             <td>{avg_rt_cell}</td>
             <td>{p95_cell}</td>
             <td>{max_rt_cell}</td>
@@ -1766,7 +1837,10 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
         if tg_data.get("stages"):
             eval_stages = [s for s in tg_data.get("stages", []) if s.get("status") != "SKIP"]
             total_target_rps = sum(s.get("target_rps", 0.0) for s in eval_stages)
-            total_actual_rps = sum(s.get("actual_rps", 0.0) for s in eval_stages)
+            total_actual_rps_ok = sum(s.get("actual_rps_ok", 0.0) for s in eval_stages)
+            total_actual_rps_all = sum(
+                s.get("actual_rps_all", s.get("actual_rps", 0.0)) for s in eval_stages
+            )
             total_requests = sum(s.get("total_requests", 0) for s in eval_stages)
             total_errors = sum(s.get("total_errors", 0) for s in eval_stages)
             total_expected = sum(s.get("expected_requests", 0) for s in eval_stages)
@@ -1774,24 +1848,41 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
             stages_count = len(eval_stages)
             
             if stages_count > 0:
-                avg_deviation = sum(s.get("deviation_pct", 0.0) for s in eval_stages) / stages_count
+                avg_deviation_ok = (
+                    sum(s.get("deviation_pct_ok", 0.0) for s in eval_stages) / stages_count
+                )
+                avg_deviation_all = (
+                    sum(
+                        s.get("deviation_pct_all", s.get("deviation_pct", 0.0))
+                        for s in eval_stages
+                    )
+                    / stages_count
+                )
                 avg_rt = sum(s.get("avg_response_time_ms", 0.0) for s in eval_stages) / stages_count
             else:
-                avg_deviation = 0.0
+                avg_deviation_ok = 0.0
+                avg_deviation_all = 0.0
                 avg_rt = 0.0
             
             max_pct95_rt = max((s.get("pct95_response_time_ms", 0.0) for s in eval_stages), default=0.0)
             max_max_rt = max((s.get("max_response_time_ms", 0.0) for s in eval_stages), default=0.0)
             
             total_all_requests = total_requests + total_errors
+            success_percentage = (total_requests / total_all_requests * 100.0) if total_all_requests > 0 else 0.0
             error_percentage = (total_errors / total_all_requests * 100.0) if total_all_requests > 0 else 0.0
             
             summary_deviation_class = "deviation-good"
-            if avg_deviation > 20:
+            if avg_deviation_all > 20:
                 summary_deviation_class = "deviation-bad"
-            elif avg_deviation > 10:
+            elif avg_deviation_all > 10:
                 summary_deviation_class = "deviation-warning"
             
+            summary_success_class = "deviation-good"
+            if success_percentage < 95.0:
+                summary_success_class = "deviation-bad"
+            elif success_percentage < 99.0:
+                summary_success_class = "deviation-warning"
+
             summary_error_class = "deviation-good"
             if error_percentage > 5.0:
                 summary_error_class = "deviation-bad"
@@ -1799,21 +1890,41 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
                 summary_error_class = "deviation-warning"
             
             summary_status_icon = "[OK]" if tg_data['status'] == "PASS" else "[FAIL]"
+            requests_diff_total = total_actual_all - total_expected
+            requests_diff_total_pct = (
+                abs(requests_diff_total / total_expected * 100.0) if total_expected > 0 else 0.0
+            )
+            req_total_class = "deviation-good"
+            req_total_status = "PASS"
+            req_total_status_class = "status-PASS"
+            if requests_diff_total_pct > 10.0:
+                req_total_class = "deviation-bad"
+                req_total_status = "FAIL"
+                req_total_status_class = "status-FAIL"
+            elif requests_diff_total_pct > 5.0:
+                req_total_class = "deviation-warning"
+                req_total_status = "WARN"
+                req_total_status_class = "status-PARTIAL"
             
             frags.append(f"""
         <tr class="summary-row">
             <td><strong>Итого</strong></td>
             <td>-</td>
             <td><strong>{total_target_rps:.2f}</strong></td>
-            <td><strong>{total_actual_rps:.2f}</strong></td>
-            <td class="{summary_deviation_class}"><strong>{avg_deviation:.2f}%</strong></td>
+            <td><strong>{total_actual_rps_ok:.2f}</strong></td>
+            <td class="{summary_deviation_class}"><strong>{avg_deviation_ok:.2f}%</strong></td>
+            <td><strong>{total_actual_rps_all:.2f}</strong></td>
+            <td class="{summary_deviation_class}"><strong>{avg_deviation_all:.2f}%</strong></td>
             <td>-</td>
             <td>-</td>
             <td><strong>{total_requests:,}</strong></td>
             <td class="{'deviation-bad' if total_errors > 0 else ''}"><strong>{total_errors:,}</strong></td>
+            <td class="{summary_success_class}"><strong>{success_percentage:.2f}%</strong></td>
             <td class="{summary_error_class}"><strong>{error_percentage:.2f}%</strong></td>
             <td><strong>{total_expected:,}</strong></td>
-            <td><strong>{total_actual_all:,}</strong></td>
+            <td class="{req_total_class}"><strong>{total_actual_all:,}</strong></td>
+            <td class="{req_total_class}"><strong>{requests_diff_total_pct:.2f}%</strong></td>
+            <td class="{req_total_status_class}"><strong>{req_total_status}</strong></td>
             <td><strong>{avg_rt:.0f}</strong></td>
             <td><strong>{max_pct95_rt:.0f}</strong></td>
             <td><strong>{max_max_rt:.0f}</strong></td>
@@ -1949,8 +2060,8 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             <p style="margin: 5px 0;"><strong>Когда рассчитывается:</strong> ПОСЛЕ теста (из InfluxDB)</p>
             <p style="margin: 5px 0;"><strong>Что показывает:</strong> Реальный RPS, который был достигнут ЭТОЙ Thread Group за <strong>оцениваемое окно плато</strong> (полное из профиля или укороченное при ранней остановке и статусе PARTIAL).</p>
             <p style="margin: 5px 0;"><strong>Источник данных:</strong> InfluxDB, measurement <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">jmeter</code> (JMeter Backend Listener). Для каждой Thread Group считаются только серии с именем транзакции <strong><code>_UC*</code></strong> (Transaction Controller): семплеры внутри уже входят в count родительской транзакции. Если в профиле (<code>load_profile</code>) для TG перечислены такие имена — в запросе OR по ним; если в профиле нет имён с префиксом <code>_UC</code>, используется условие <code>transaction =~ /^_UC.*/</code> в окне времени (при параллельных TG возможен суммарный учёт всех <code>_UC</code> в этот момент).</p>
-            <p style="margin: 5px 0;"><strong>Формула:</strong> <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">Общее количество успешных запросов / Длительность оцениваемого плато (сек)</code></p>
-            <p style="margin: 5px 0; color: #666; font-style: italic;">Успешные запросы: <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">statut = 'ok'</code>. Ошибки учитываются отдельно в колонках запросов и % ошибок.</p>
+            <p style="margin: 5px 0;"><strong>Формула:</strong> <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">(Успешные запросы + Запросы с ошибками) / Длительность оцениваемого плато (сек)</code></p>
+            <p style="margin: 5px 0; color: #666; font-style: italic;">Для попадания в профиль учитывается вся поданная интенсивность: <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">statut = 'ok'</code> и <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">statut = 'ko'</code>. Качество остаётся в отдельных колонках ошибок и % ошибок.</p>
         </div>
         
         <div style="margin: 15px 0; padding: 15px; background-color: #e8f4fd; border-left: 3px solid #2196F3; border-radius: 3px;">
@@ -1964,10 +2075,11 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         <div style="margin: 15px 0; padding: 15px; background-color: #fff3cd; border-left: 3px solid #ffc107; border-radius: 3px;">
             <h5 style="margin-top: 0; color: #856404;">4. Отклонение % и порог</h5>
             <p style="margin: 5px 0;"><strong>ВАЖНО:</strong> Отклонение считается для <strong>каждой Thread Group отдельно</strong>, а не для суммы всех групп!</p>
-            <p style="margin: 5px 0;"><strong>Формула отклонения:</strong> <code style="background-color: #fff8dc; padding: 2px 6px; border-radius: 3px;">|Фактический RPS этой TG - Целевой RPS этой TG| / Целевой RPS этой TG × 100%</code></p>
-            <p style="margin: 5px 0;"><strong>Пример:</strong> UC_01_Yandex: целевой RPS = 1.67, фактический RPS = 2.00 → отклонение = |2.00 - 1.67| / 1.67 × 100% = <strong>19.76%</strong></p>
-            <p style="margin: 5px 0;"><strong>Порог для PASS / FAIL по RPS (эта проверка):</strong> <span style="color: green; font-weight: bold;">PASS</span> если отклонение ≤ <strong>{tol:g}%</strong>, <span style="color: red; font-weight: bold;">FAIL</span> если отклонение &gt; <strong>{tol:g}%</strong> (задаётся аргументом скрипта или значением по умолчанию).</p>
-            <p style="margin: 5px 0; color: #666; font-style: italic;">Отклонение считается относительно целевого RPS ЭТОЙ конкретной Thread Group.</p>
+            <p style="margin: 5px 0;"><strong>Формулы:</strong></p>
+            <p style="margin: 5px 0;"><code style="background-color: #fff8dc; padding: 2px 6px; border-radius: 3px;">Отклонение OK % = |Факт. RPS OK - Целевой RPS| / Целевой RPS × 100%</code></p>
+            <p style="margin: 5px 0;"><code style="background-color: #fff8dc; padding: 2px 6px; border-radius: 3px;">Отклонение ALL % = |Факт. RPS ALL - Целевой RPS| / Целевой RPS × 100%</code></p>
+            <p style="margin: 5px 0;"><strong>Порог для PASS / FAIL по RPS:</strong> используется <strong>Отклонение ALL %</strong> (попадание в профиль по всей поданной интенсивности, включая ошибки). PASS если ≤ <strong>{tol:g}%</strong>, FAIL если &gt; <strong>{tol:g}%</strong>.</p>
+            <p style="margin: 5px 0; color: #666; font-style: italic;">Статус по количеству запросов — отдельный информационный индикатор и не влияет на общий PASS/FAIL по профилю.</p>
         </div>
 {multi_note}
     </div>
@@ -2008,15 +2120,20 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             <th title="Номер ступени нагрузки">Ступень</th>
             <th title="Временной интервал плато (секунды от начала теста)">Время (сек)</th>
             <th title="Сумма целевых RPS всех Thread Groups на этой ступени">Целевой RPS<br/>(сумма всех групп)</th>
-            <th title="Сумма фактических RPS всех Thread Groups на этой ступени">Фактический RPS<br/>(сумма всех групп)</th>
-            <th title="Отклонение суммарного фактического RPS от суммарного целевого RPS">Отклонение %</th>
+            <th title="Сумма фактических RPS по успешным запросам (statut='ok')">Факт. RPS OK<br/>(сумма групп)</th>
+            <th title="Отклонение по успешным запросам: |Факт. RPS OK - Целевой RPS| / Целевой RPS × 100%">Отклонение OK %</th>
+            <th title="Сумма фактических RPS по всем запросам (успешные + ошибки)">Факт. RPS ALL<br/>(сумма групп)</th>
+            <th title="Отклонение по всем запросам: |Факт. RPS ALL - Целевой RPS| / Целевой RPS × 100%">Отклонение ALL %</th>
             <th title="Сумма потоков всех Thread Groups">Всего<br/>потоков</th>
             <th title="Длительность плато в секундах">Длительность<br/>(сек)</th>
             <th title="Сумма успешных запросов всех Thread Groups">Запросов<br/>(успешных)</th>
             <th title="Сумма ошибок всех Thread Groups">Запросов<br/>(с ошибками)</th>
-            <th title="Общий процент ошибок = (сумма ошибок / (сумма успешных + сумма ошибок)) × 100%">% Ошибок</th>
+            <th title="Общий процент успешных = (сумма успешных / (сумма успешных + сумма ошибок)) × 100%">% Успешных</th>
+            <th title="Общий процент неуспешных = (сумма ошибок / (сумма успешных + сумма ошибок)) × 100%">% Неуспешных</th>
             <th title="Сумма ожидаемых запросов всех Thread Groups">Ожидаемое<br/>запросов</th>
             <th title="Сумма фактических запросов всех Thread Groups">Фактическое<br/>запросов</th>
+            <th title="Отклонение по количеству запросов = |Фактическое - Ожидаемое| / Ожидаемое × 100%">Откл. запросов %</th>
+            <th title="Статус по количеству запросов (информационный): PASS ≤ 5%, WARN ≤ 10%, FAIL > 10%">Статус<br/>запросов</th>
             <th title="Среднее время отклика по всем Thread Groups (взвешенное)">Avg RT<br/>(мс)</th>
             <th title="Максимальное P95 время отклика среди всех Thread Groups">P95 RT<br/>(мс)</th>
             <th title="Максимальное время отклика среди всех Thread Groups">Max RT<br/>(мс)</th>
@@ -2040,7 +2157,8 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
                     "plateau_end_s": stage.get("plateau_end_s", 0),
                     "plateau_duration_s": 0,
                     "total_target_rps": 0.0,
-                    "total_actual_rps": 0.0,
+                    "total_actual_rps_ok": 0.0,
+                    "total_actual_rps_all": 0.0,
                     "total_threads": 0,
                     "total_requests": 0,
                     "total_errors": 0,
@@ -2063,7 +2181,11 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
                 summary["any_partial"] = True
             
             summary["total_target_rps"] += stage.get("target_rps", 0.0)
-            summary["total_actual_rps"] += stage.get("actual_rps", 0.0)
+            summary["total_actual_rps_ok"] += stage.get("actual_rps_ok", 0.0)
+            summary["total_actual_rps_all"] += stage.get(
+                "actual_rps_all",
+                stage.get("actual_rps", 0.0),
+            )
             summary["total_threads"] += stage.get("threads", 0)
             summary["total_requests"] += stage.get("total_requests", 0)
             summary["total_errors"] += stage.get("total_errors", 0)
@@ -2090,32 +2212,45 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
     for stage_idx in sorted(all_stages_summary.keys()):
         summary = all_stages_summary[stage_idx]
         
-        deviation_pct = 0.0
+        deviation_ok_pct = 0.0
+        deviation_all_pct = 0.0
         if summary.get("skip_only"):
             status = "SKIP"
-            deviation_pct_display = "—"
+            deviation_ok_display = "—"
+            deviation_all_display = "—"
             deviation_class = ""
             summary_row_class = "row-skip"
             summary_status_icon = "[—]"
             total_all_requests = 0
+            success_percentage = 0.0
             error_percentage = 0.0
+            success_percentage_class = ""
             error_percentage_class = ""
             requests_diff_class = ""
+            requests_diff_pct = 0.0
+            req_status = "—"
+            req_status_class = ""
         else:
             if summary["total_target_rps"] > 0:
-                deviation_pct = abs(
-                    (summary["total_actual_rps"] - summary["total_target_rps"])
+                deviation_ok_pct = abs(
+                    (summary["total_actual_rps_ok"] - summary["total_target_rps"])
                     / summary["total_target_rps"]
                     * 100.0
                 )
-            status = "PASS" if deviation_pct <= tolerance_pct else "FAIL"
+                deviation_all_pct = abs(
+                    (summary["total_actual_rps_all"] - summary["total_target_rps"])
+                    / summary["total_target_rps"]
+                    * 100.0
+                )
+            status = "PASS" if deviation_all_pct <= tolerance_pct else "FAIL"
             if summary.get("any_partial") and status == "PASS":
                 status = "PARTIAL"
-            deviation_pct_display = f"{deviation_pct:.2f}%"
+            deviation_ok_display = f"{deviation_ok_pct:.2f}%"
+            deviation_all_display = f"{deviation_all_pct:.2f}%"
             deviation_class = "deviation-good"
-            if deviation_pct > 20:
+            if deviation_all_pct > 20:
                 deviation_class = "deviation-bad"
-            elif deviation_pct > 10:
+            elif deviation_all_pct > 10:
                 deviation_class = "deviation-warning"
             if status == "PARTIAL":
                 summary_row_class = "row-partial"
@@ -2128,10 +2263,18 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
                 summary_status_icon = "[OK]"
             
             total_all_requests = summary["total_requests"] + summary["total_errors"]
+            success_percentage = 0.0
             error_percentage = 0.0
             if total_all_requests > 0:
+                success_percentage = (summary["total_requests"] / total_all_requests) * 100.0
                 error_percentage = (summary["total_errors"] / total_all_requests) * 100.0
-            
+
+            success_percentage_class = "deviation-good"
+            if success_percentage < 95.0:
+                success_percentage_class = "deviation-bad"
+            elif success_percentage < 99.0:
+                success_percentage_class = "deviation-warning"
+
             error_percentage_class = "deviation-good"
             if error_percentage > 5.0:
                 error_percentage_class = "deviation-bad"
@@ -2140,27 +2283,39 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
             
             requests_diff = summary["total_actual_all_requests"] - summary["total_expected_requests"]
             requests_diff_class = "deviation-good"
+            requests_diff_pct = 0.0
+            req_status = "PASS"
+            req_status_class = "status-PASS"
             if summary["total_expected_requests"] > 0:
                 requests_diff_pct = abs(requests_diff / summary["total_expected_requests"] * 100.0)
                 if requests_diff_pct > 10.0:
                     requests_diff_class = "deviation-bad"
+                    req_status = "FAIL"
+                    req_status_class = "status-FAIL"
                 elif requests_diff_pct > 5.0:
                     requests_diff_class = "deviation-warning"
+                    req_status = "WARN"
+                    req_status_class = "status-PARTIAL"
         
         html += f"""
         <tr class="{summary_row_class}">
             <td><strong>{summary['stage_idx']}</strong></td>
             <td>{summary['plateau_start_s']}-{summary['plateau_end_s']}</td>
             <td><strong>{summary['total_target_rps']:.2f}</strong></td>
-            <td><strong>{summary['total_actual_rps']:.2f}</strong></td>
-            <td class="{deviation_class}"><strong>{deviation_pct_display}</strong></td>
+            <td><strong>{summary['total_actual_rps_ok']:.2f}</strong></td>
+            <td class="{deviation_class}"><strong>{deviation_ok_display}</strong></td>
+            <td><strong>{summary['total_actual_rps_all']:.2f}</strong></td>
+            <td class="{deviation_class}"><strong>{deviation_all_display}</strong></td>
             <td><strong>{summary['total_threads']}</strong></td>
             <td>{summary['plateau_duration_s'] if not summary.get('skip_only') else '—'}</td>
             <td><strong>{summary['total_requests']:,}</strong></td>
             <td class="{'deviation-bad' if summary['total_errors'] > 0 else ''}"><strong>{summary['total_errors']:,}</strong></td>
+            <td class="{success_percentage_class}"><strong>{success_percentage:.2f}%</strong></td>
             <td class="{error_percentage_class}"><strong>{error_percentage:.2f}%</strong></td>
             <td>{summary['total_expected_requests']:,}</td>
             <td class="{requests_diff_class}"><strong>{summary['total_actual_all_requests']:,}</strong></td>
+            <td class="{requests_diff_class}"><strong>{requests_diff_pct:.2f}%</strong></td>
+            <td class="{req_status_class}"><strong>{req_status}</strong></td>
             <td>{summary['weighted_avg_rt']:.0f}</td>
             <td>{summary['max_pct95_rt']:.0f}</td>
             <td>{summary['max_max_rt']:.0f}</td>
@@ -2171,7 +2326,8 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
     # Добавляем итоговую строку для сводной таблицы
     if all_stages_summary:
         total_all_target_rps = sum(s["total_target_rps"] for s in all_stages_summary.values())
-        total_all_actual_rps = sum(s["total_actual_rps"] for s in all_stages_summary.values())
+        total_all_actual_rps_ok = sum(s["total_actual_rps_ok"] for s in all_stages_summary.values())
+        total_all_actual_rps_all = sum(s["total_actual_rps_all"] for s in all_stages_summary.values())
         total_all_requests = sum(s["total_requests"] for s in all_stages_summary.values())
         total_all_errors = sum(s["total_errors"] for s in all_stages_summary.values())
         total_all_expected = sum(s["total_expected_requests"] for s in all_stages_summary.values())
@@ -2184,9 +2340,15 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
                 if s.get("skip_only"):
                     continue
                 if s["total_target_rps"] > 0:
-                    dev = abs((s["total_actual_rps"] - s["total_target_rps"]) / s["total_target_rps"] * 100.0)
-                    deviations.append(dev)
-            avg_all_deviation = sum(deviations) / len(deviations) if deviations else 0.0
+                    dev_ok = abs((s["total_actual_rps_ok"] - s["total_target_rps"]) / s["total_target_rps"] * 100.0)
+                    dev_all = abs((s["total_actual_rps_all"] - s["total_target_rps"]) / s["total_target_rps"] * 100.0)
+                    deviations.append((dev_ok, dev_all))
+            avg_all_deviation_ok = (
+                sum(d[0] for d in deviations) / len(deviations) if deviations else 0.0
+            )
+            avg_all_deviation_all = (
+                sum(d[1] for d in deviations) / len(deviations) if deviations else 0.0
+            )
             evaluated_summaries = [s for s in all_stages_summary.values() if not s.get("skip_only")]
             avg_all_rt = (
                 sum(s["weighted_avg_rt"] for s in evaluated_summaries) / len(evaluated_summaries)
@@ -2194,44 +2356,72 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
                 else 0.0
             )
         else:
-            avg_all_deviation = 0.0
+            avg_all_deviation_ok = 0.0
+            avg_all_deviation_all = 0.0
             avg_all_rt = 0.0
         
         max_all_pct95_rt = max((s["max_pct95_rt"] for s in all_stages_summary.values()), default=0.0)
         max_all_max_rt = max((s["max_max_rt"] for s in all_stages_summary.values()), default=0.0)
         
         total_all_all_requests = total_all_requests + total_all_errors
+        success_percentage_all = (total_all_requests / total_all_all_requests * 100.0) if total_all_all_requests > 0 else 0.0
         error_percentage_all = (total_all_errors / total_all_all_requests * 100.0) if total_all_all_requests > 0 else 0.0
         
         summary_all_deviation_class = "deviation-good"
-        if avg_all_deviation > 20:
+        if avg_all_deviation_all > 20:
             summary_all_deviation_class = "deviation-bad"
-        elif avg_all_deviation > 10:
+        elif avg_all_deviation_all > 10:
             summary_all_deviation_class = "deviation-warning"
         
+        summary_all_success_class = "deviation-good"
+        if success_percentage_all < 95.0:
+            summary_all_success_class = "deviation-bad"
+        elif success_percentage_all < 99.0:
+            summary_all_success_class = "deviation-warning"
+
         summary_all_error_class = "deviation-good"
         if error_percentage_all > 5.0:
             summary_all_error_class = "deviation-bad"
         elif error_percentage_all > 1.0:
             summary_all_error_class = "deviation-warning"
         
-        overall_status = "PASS" if avg_all_deviation <= 10.0 else "FAIL"
+        overall_status = "PASS" if avg_all_deviation_all <= 10.0 else "FAIL"
         overall_status_icon = "[OK]" if overall_status == "PASS" else "[FAIL]"
+        req_overall_diff = total_all_actual_all - total_all_expected
+        req_overall_diff_pct = (
+            abs(req_overall_diff / total_all_expected * 100.0) if total_all_expected > 0 else 0.0
+        )
+        req_overall_class = "deviation-good"
+        req_overall_status = "PASS"
+        req_overall_status_class = "status-PASS"
+        if req_overall_diff_pct > 10.0:
+            req_overall_class = "deviation-bad"
+            req_overall_status = "FAIL"
+            req_overall_status_class = "status-FAIL"
+        elif req_overall_diff_pct > 5.0:
+            req_overall_class = "deviation-warning"
+            req_overall_status = "WARN"
+            req_overall_status_class = "status-PARTIAL"
         
         html += f"""
         <tr class="summary-row">
             <td><strong>Итого</strong></td>
             <td>-</td>
             <td><strong>{total_all_target_rps:.2f}</strong></td>
-            <td><strong>{total_all_actual_rps:.2f}</strong></td>
-            <td class="{summary_all_deviation_class}"><strong>{avg_all_deviation:.2f}%</strong></td>
+            <td><strong>{total_all_actual_rps_ok:.2f}</strong></td>
+            <td class="{summary_all_deviation_class}"><strong>{avg_all_deviation_ok:.2f}%</strong></td>
+            <td><strong>{total_all_actual_rps_all:.2f}</strong></td>
+            <td class="{summary_all_deviation_class}"><strong>{avg_all_deviation_all:.2f}%</strong></td>
             <td>-</td>
             <td>-</td>
             <td><strong>{total_all_requests:,}</strong></td>
             <td class="{'deviation-bad' if total_all_errors > 0 else ''}"><strong>{total_all_errors:,}</strong></td>
+            <td class="{summary_all_success_class}"><strong>{success_percentage_all:.2f}%</strong></td>
             <td class="{summary_all_error_class}"><strong>{error_percentage_all:.2f}%</strong></td>
             <td><strong>{total_all_expected:,}</strong></td>
-            <td><strong>{total_all_actual_all:,}</strong></td>
+            <td class="{req_overall_class}"><strong>{total_all_actual_all:,}</strong></td>
+            <td class="{req_overall_class}"><strong>{req_overall_diff_pct:.2f}%</strong></td>
+            <td class="{req_overall_status_class}"><strong>{req_overall_status}</strong></td>
             <td><strong>{avg_all_rt:.0f}</strong></td>
             <td><strong>{max_all_pct95_rt:.0f}</strong></td>
             <td><strong>{max_all_max_rt:.0f}</strong></td>
@@ -2245,8 +2435,9 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         <h4 style="margin-top: 0;">Пояснения по сводной таблице:</h4>
         <ul style="margin-bottom: 0;">
             <li><strong>Целевой RPS (сумма всех групп):</strong> Сумма целевых RPS всех Thread Groups, работающих на этой ступени</li>
-            <li><strong>Фактический RPS (сумма всех групп):</strong> Сумма фактических RPS всех Thread Groups на этой ступени</li>
-            <li><strong>Отклонение %:</strong> Отклонение суммарного фактического RPS от суммарного целевого RPS</li>
+            <li><strong>Факт. RPS OK / Отклонение OK %:</strong> Расчёт только по успешным запросам (<code>statut='ok'</code>)</li>
+            <li><strong>Факт. RPS ALL / Отклонение ALL %:</strong> Расчёт по всем запросам (успешные + ошибки), используется для проверки попадания в профиль</li>
+            <li><strong>Статус запросов:</strong> информационный индикатор по отклонению количества запросов (PASS ≤ 5%, WARN ≤ 10%, FAIL > 10%), не влияет на общий PASS/FAIL по профилю</li>
             <li><strong>Avg RT:</strong> Взвешенное среднее время отклика (учитывает количество запросов каждой Thread Group)</li>
             <li><strong>P95 RT:</strong> Максимальное P95 время отклика среди всех Thread Groups</li>
             <li><strong>Max RT:</strong> Максимальное время отклика среди всех Thread Groups</li>
@@ -2430,8 +2621,11 @@ def main(argv: List[str]) -> None:
                     stage = stages_by_idx[sidx]
                     print(
                         f"  Ступень {stage['stage_idx']} [{stage.get('status', '?')}]: "
-                        f"целевой RPS = {stage['target_rps']:.2f}, факт = {stage['actual_rps']:.2f}, "
-                        f"отклонение = {stage['deviation_pct']:.2f}%"
+                        f"целевой RPS = {stage['target_rps']:.2f}, "
+                        f"факт OK = {stage.get('actual_rps_ok', 0.0):.2f}, "
+                        f"факт ALL = {stage.get('actual_rps_all', stage.get('actual_rps', 0.0)):.2f}, "
+                        f"отклонение OK = {stage.get('deviation_pct_ok', 0.0):.2f}%, "
+                        f"отклонение ALL = {stage.get('deviation_pct_all', stage.get('deviation_pct', 0.0)):.2f}%"
                     )
         print(f"\n--- Сводка кластера (N={len(results['runners'])}) — {results.get('aggregate_cluster', {}).get('overall_status', '?')} ---")
     elif results.get("aggregate_cluster") and results.get("runner_count", 0) > 1:
@@ -2466,7 +2660,10 @@ def main(argv: List[str]) -> None:
             plateau_duration_s = stage.get("plateau_duration_s", 0)
             print(
                 f"  Ступень {stage['stage_idx']} [{stage.get('status', '?')}]: целевой RPS (эта Thread Group) = {stage['target_rps']:.2f}, "
-                f"фактический RPS (эта Thread Group) = {stage['actual_rps']:.2f}, отклонение = {stage['deviation_pct']:.2f}%, "
+                f"фактический RPS OK (эта Thread Group) = {stage.get('actual_rps_ok', 0.0):.2f}, "
+                f"фактический RPS ALL (эта Thread Group) = {stage.get('actual_rps_all', stage.get('actual_rps', 0.0)):.2f}, "
+                f"отклонение OK = {stage.get('deviation_pct_ok', 0.0):.2f}%, "
+                f"отклонение ALL = {stage.get('deviation_pct_all', stage.get('deviation_pct', 0.0)):.2f}%, "
                 f"запросов (успешных) = {total_requests:,}, запросов (с ошибками) = {total_errors:,}, % ошибок = {error_percentage:.2f}%, "
                 f"Avg RT = {avg_rt:.0f}мс, P95 RT = {pct95_rt:.0f}мс, Max RT = {max_rt:.0f}мс, ожидаемое запросов = {expected_requests:,}, "
                 f"фактическое запросов = {actual_all_requests:,}, длительность = {plateau_duration_s}с"

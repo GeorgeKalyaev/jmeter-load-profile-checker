@@ -62,10 +62,19 @@ python jmeter_load_pipeline.py report --config influx_config_localhost.json
 Для каждой Thread Group и каждой ступени:
 
 - **Target RPS**: `(CTT RPM * threads_on_stage) / 60`;
-- **Actual RPS**: `ok_requests / plateau_duration_seconds`;
-- **Deviation %**: `abs(actual - target) / target * 100`.
+- **Fact. RPS OK**: `ok_requests / plateau_duration_seconds`;
+- **Fact. RPS ALL**: `(ok_requests + ko_requests) / plateau_duration_seconds`;
+- **Deviation OK %**: `abs(actual_ok - target) / target * 100`;
+- **Deviation ALL %**: `abs(actual_all - target) / target * 100`.
 
-Где `ok_requests` — только `statut='ok'`; ошибки в числитель RPS не включаются.
+Где:
+
+- `ok_requests` — запросы с `statut='ok'`;
+- `ko_requests` — запросы с `statut='ko'`.
+
+Статус ступени `PASS/FAIL` для проверки попадания в профиль считается по **Deviation ALL %**.
+Дополнительно в таблице есть информационный `Статус запросов` по отклонению количества запросов
+(ожидаемое vs фактическое): `PASS <= 5%`, `WARN <= 10%`, `FAIL > 10%`.
 
 ### Ранний стоп теста
 

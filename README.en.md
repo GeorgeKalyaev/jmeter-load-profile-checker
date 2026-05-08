@@ -62,10 +62,19 @@ Output: `load_profile_check_<test_run>.html` and `.json`.
 For each thread group and each stage:
 
 - **Target RPS**: `(CTT RPM * threads_on_stage) / 60`;
-- **Actual RPS**: `ok_requests / plateau_duration_seconds`;
-- **Deviation %**: `abs(actual - target) / target * 100`.
+- **Fact. RPS OK**: `ok_requests / plateau_duration_seconds`;
+- **Fact. RPS ALL**: `(ok_requests + ko_requests) / plateau_duration_seconds`;
+- **Deviation OK %**: `abs(actual_ok - target) / target * 100`;
+- **Deviation ALL %**: `abs(actual_all - target) / target * 100`.
 
-`ok_requests` means only `statut='ok'` rows.
+Where:
+
+- `ok_requests` are rows with `statut='ok'`;
+- `ko_requests` are rows with `statut='ko'`.
+
+Stage `PASS/FAIL` for profile compliance is based on **Deviation ALL %**.
+The report also shows an informational `Requests status` (expected vs actual request count):
+`PASS <= 5%`, `WARN <= 10%`, `FAIL > 10%`.
 
 ### Early stop support
 
