@@ -1646,21 +1646,21 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
         <tr>
             <th>Ступень</th>
             <th>Время (сек)</th>
-            <th title="Ожидаемый RPS для ЭТОЙ Thread Group = (CTT в RPM × потоки ЭТОЙ группы) / 60">Целевой RPS<br/>(эта Thread Group)</th>
-            <th title="Реальный RPS по успешным запросам (statut='ok') для ЭТОЙ Thread Group за период плато">Факт. RPS OK<br/>(эта TG)</th>
-            <th title="Отклонение по успешным запросам: |Факт. RPS OK - Целевой RPS| / Целевой RPS × 100%">Отклонение OK %</th>
-            <th title="Реальный RPS по всем запросам (успешные + ошибки) для ЭТОЙ Thread Group за период плато">Факт. RPS ALL<br/>(эта TG)</th>
-            <th title="Отклонение по всем запросам: |Факт. RPS ALL - Целевой RPS| / Целевой RPS × 100%">Отклонение ALL %</th>
+            <th class="col-rps-ok" title="Ожидаемый RPS для ЭТОЙ Thread Group = (CTT в RPM × потоки ЭТОЙ группы) / 60">Целевой RPS<br/>(эта Thread Group)</th>
+            <th class="col-rps-ok" title="Реальный RPS по успешным запросам (statut='ok') для ЭТОЙ Thread Group за период плато">Факт. RPS OK<br/>(эта TG)</th>
+            <th class="col-rps-ok" title="Отклонение по успешным запросам: |Факт. RPS OK - Целевой RPS| / Целевой RPS × 100%">Отклонение OK %</th>
+            <th class="col-rps-all" title="Реальный RPS по всем запросам (успешные + ошибки) для ЭТОЙ Thread Group за период плато">Факт. RPS ALL<br/>(эта TG)</th>
+            <th class="col-rps-all" title="Отклонение по всем запросам: |Факт. RPS ALL - Целевой RPS| / Целевой RPS × 100%">Отклонение ALL %</th>
             <th>Потоков</th>
             <th title="Длительность плато в секундах">Длительность<br/>(сек)</th>
-            <th title="Общее количество успешных запросов за период плато">Запросов<br/>(успешных)</th>
-            <th title="Общее количество запросов с ошибками за период плато">Запросов<br/>(с ошибками)</th>
-            <th title="Процент успешных = (успешные / (успешные + ошибки)) × 100%">% Успешных</th>
-            <th title="Процент неуспешных = (ошибки / (успешные + ошибки)) × 100%">% Неуспешных</th>
-            <th title="Ожидаемое число запросов = целевой RPS × длительность оцениваемого плато (полный hold или укороченный интервал при PARTIAL)">Ожидаемое<br/>запросов</th>
-            <th title="Фактическое количество запросов = Успешные + Ошибки">Фактическое<br/>запросов</th>
-            <th title="Отклонение по количеству запросов = |Фактическое - Ожидаемое| / Ожидаемое × 100%">Откл. запросов %</th>
-            <th title="Статус по количеству запросов (информационный): PASS ≤ 5%, WARN ≤ 10%, FAIL > 10%">Статус<br/>запросов</th>
+            <th class="col-req" title="Общее количество успешных запросов за период плато">Запросов<br/>(успешных)</th>
+            <th class="col-req" title="Общее количество запросов с ошибками за период плато">Запросов<br/>(с ошибками)</th>
+            <th class="col-quality" title="Процент успешных = (успешные / (успешные + ошибки)) × 100%">% Успешных</th>
+            <th class="col-quality" title="Процент неуспешных = (ошибки / (успешные + ошибки)) × 100%">% Неуспешных</th>
+            <th class="col-req" title="Ожидаемое число запросов = целевой RPS × длительность оцениваемого плато (полный hold или укороченный интервал при PARTIAL)">Ожидаемое<br/>запросов</th>
+            <th class="col-req" title="Фактическое количество запросов = Успешные + Ошибки">Фактическое<br/>запросов</th>
+            <th class="col-req" title="Отклонение по количеству запросов = |Фактическое - Ожидаемое| / Ожидаемое × 100%">Откл. запросов %</th>
+            <th class="col-req" title="Статус по количеству запросов (информационный): PASS ≤ 5%, WARN ≤ 10%, FAIL > 10%">Статус<br/>запросов</th>
             <th title="Среднее время отклика всех запросов за плато (мс)">Avg RT<br/>(мс)</th>
             <th title="95-й перцентиль времени отклика (мс)">P95 RT<br/>(мс)</th>
             <th title="Максимальное время отклика за плато (мс). Может содержать выбросы (outliers)">Max RT<br/>(мс)</th>
@@ -1811,21 +1811,21 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
         <tr class="{row_class}">
             <td>{stage['stage_idx']}</td>
             <td>{stage['plateau_start_s']}-{stage['plateau_end_s']}</td>
-            <td><strong>{stage['target_rps']:.2f}</strong></td>
-            <td>{actual_rps_ok_cell}</td>
-            <td class="{deviation_class}">{deviation_ok_cell}</td>
-            <td>{actual_rps_all_cell}</td>
-            <td class="{deviation_class}">{deviation_all_cell}</td>
+            <td class="col-rps-ok"><strong>{stage['target_rps']:.2f}</strong></td>
+            <td class="col-rps-ok">{actual_rps_ok_cell}</td>
+            <td class="col-rps-ok {deviation_class}">{deviation_ok_cell}</td>
+            <td class="col-rps-all">{actual_rps_all_cell}</td>
+            <td class="col-rps-all {deviation_class}">{deviation_all_cell}</td>
             <td>{stage['threads']}</td>
             <td>{plateau_dur_cell}</td>
-            <td>{req_ok_cell}</td>
-            <td class="{errors_class}">{req_err_cell}</td>
-            <td class="{success_percentage_class}">{succ_pct_cell}</td>
-            <td class="{error_percentage_class}">{err_pct_cell}</td>
-            <td>{exp_req_cell}</td>
-            <td class="{requests_diff_class}">{act_all_cell}</td>
-            <td class="{requests_diff_class}">{req_dev_cell}</td>
-            <td class="{req_status_class}">{req_status_cell}</td>
+            <td class="col-req">{req_ok_cell}</td>
+            <td class="col-req {errors_class}">{req_err_cell}</td>
+            <td class="col-quality {success_percentage_class}">{succ_pct_cell}</td>
+            <td class="col-quality {error_percentage_class}">{err_pct_cell}</td>
+            <td class="col-req">{exp_req_cell}</td>
+            <td class="col-req {requests_diff_class}">{act_all_cell}</td>
+            <td class="col-req {requests_diff_class}">{req_dev_cell}</td>
+            <td class="col-req {req_status_class}">{req_status_cell}</td>
             <td>{avg_rt_cell}</td>
             <td>{p95_cell}</td>
             <td>{max_rt_cell}</td>
@@ -1910,21 +1910,21 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
         <tr class="summary-row">
             <td><strong>Итого</strong></td>
             <td>-</td>
-            <td><strong>{total_target_rps:.2f}</strong></td>
-            <td><strong>{total_actual_rps_ok:.2f}</strong></td>
-            <td class="{summary_deviation_class}"><strong>{avg_deviation_ok:.2f}%</strong></td>
-            <td><strong>{total_actual_rps_all:.2f}</strong></td>
-            <td class="{summary_deviation_class}"><strong>{avg_deviation_all:.2f}%</strong></td>
+            <td class="col-rps-ok"><strong>{total_target_rps:.2f}</strong></td>
+            <td class="col-rps-ok"><strong>{total_actual_rps_ok:.2f}</strong></td>
+            <td class="col-rps-ok {summary_deviation_class}"><strong>{avg_deviation_ok:.2f}%</strong></td>
+            <td class="col-rps-all"><strong>{total_actual_rps_all:.2f}</strong></td>
+            <td class="col-rps-all {summary_deviation_class}"><strong>{avg_deviation_all:.2f}%</strong></td>
             <td>-</td>
             <td>-</td>
-            <td><strong>{total_requests:,}</strong></td>
-            <td class="{'deviation-bad' if total_errors > 0 else ''}"><strong>{total_errors:,}</strong></td>
-            <td class="{summary_success_class}"><strong>{success_percentage:.2f}%</strong></td>
-            <td class="{summary_error_class}"><strong>{error_percentage:.2f}%</strong></td>
-            <td><strong>{total_expected:,}</strong></td>
-            <td class="{req_total_class}"><strong>{total_actual_all:,}</strong></td>
-            <td class="{req_total_class}"><strong>{requests_diff_total_pct:.2f}%</strong></td>
-            <td class="{req_total_status_class}"><strong>{req_total_status}</strong></td>
+            <td class="col-req"><strong>{total_requests:,}</strong></td>
+            <td class="col-req {'deviation-bad' if total_errors > 0 else ''}"><strong>{total_errors:,}</strong></td>
+            <td class="col-quality {summary_success_class}"><strong>{success_percentage:.2f}%</strong></td>
+            <td class="col-quality {summary_error_class}"><strong>{error_percentage:.2f}%</strong></td>
+            <td class="col-req"><strong>{total_expected:,}</strong></td>
+            <td class="col-req {req_total_class}"><strong>{total_actual_all:,}</strong></td>
+            <td class="col-req {req_total_class}"><strong>{requests_diff_total_pct:.2f}%</strong></td>
+            <td class="col-req {req_total_status_class}"><strong>{req_total_status}</strong></td>
             <td><strong>{avg_rt:.0f}</strong></td>
             <td><strong>{max_pct95_rt:.0f}</strong></td>
             <td><strong>{max_max_rt:.0f}</strong></td>
@@ -2013,15 +2013,43 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
         th {{ background-color: #f2f2f2; cursor: help; }}
         th:hover {{ background-color: #e0e0e0; }}
-        /* Специальный стиль для заголовков сводной таблицы - перекрывает общий стиль */
+        /* Группы колонок для более понятного визуального сравнения */
+        .col-rps-ok {{ background-color: #eaf4ff; }}
+        .col-rps-all {{ background-color: #f1ecff; }}
+        .col-req {{ background-color: #fff8e8; }}
+        .col-quality {{ background-color: #edf8ef; }}
+        th.col-rps-ok {{ background-color: #d8eaff; }}
+        th.col-rps-all {{ background-color: #e3dbff; }}
+        th.col-req {{ background-color: #ffefc9; }}
+        th.col-quality {{ background-color: #d9efdd; }}
+        /* В сводной таблице также применяем цветовые группы с приоритетом */
         .summary-table-header th {{
-            background-color: #4CAF50 !important;
-            color: white !important;
+            color: #1f2937 !important;
             font-weight: bold !important;
         }}
-        .summary-table-header th:hover {{
-            background-color: #45a049 !important;
+        .summary-table-header th.col-rps-ok {{ background-color: #cfe3fb !important; }}
+        .summary-table-header th.col-rps-all {{ background-color: #d9cdfd !important; }}
+        .summary-table-header th.col-req {{ background-color: #ffe5ad !important; }}
+        .summary-table-header th.col-quality {{ background-color: #cfe8d4 !important; }}
+        /* Тонкие вертикальные разделители между блоками */
+        table tr th:nth-child(5), table tr td:nth-child(5),
+        table tr th:nth-child(7), table tr td:nth-child(7),
+        table tr th:nth-child(13), table tr td:nth-child(13),
+        table tr th:nth-child(17), table tr td:nth-child(17) {{
+            border-right: 2px solid #c7ced6 !important;
         }}
+        /* Decision columns чуть ярче внутри блоков */
+        table tr th:nth-child(5), table tr td:nth-child(5) {{ background-color: #dfefff !important; }}
+        table tr th:nth-child(7), table tr td:nth-child(7) {{ background-color: #e8ddff !important; }}
+        table tr th:nth-child(16), table tr td:nth-child(16) {{ background-color: #ffeec7 !important; }}
+        /* RT-блок приглушаем */
+        table tr th:nth-child(18), table tr td:nth-child(18),
+        table tr th:nth-child(19), table tr td:nth-child(19),
+        table tr th:nth-child(20), table tr td:nth-child(20) {{ background-color: #f6f7f9 !important; }}
+        /* Фоновая подсветка статуса запросов */
+        td:nth-child(17).status-PASS {{ background-color: #e6f4ea !important; color: #1b5e20; }}
+        td:nth-child(17).status-PARTIAL {{ background-color: #fff4e5 !important; color: #8a4b00; }}
+        td:nth-child(17).status-FAIL {{ background-color: #fdecea !important; color: #b71c1c; }}
         .deviation-good {{ color: green; }}
         .deviation-warning {{ color: orange; }}
         .deviation-bad {{ color: red; }}
@@ -2030,7 +2058,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         tr.row-fail {{ background-color: #ffebee; }}
         tr.row-skip {{ background-color: #f5f5f5; color: #424242; }}
         tr.row-partial {{ background-color: #fffde7; }}
-        tr.summary-row {{ background-color: #e3f2fd; font-weight: bold; border-top: 2px solid #2196F3; }}
+        tr.summary-row {{ background-color: #e3f2fd; font-weight: bold; border-top: 2px solid #2196F3; border-bottom: 2px solid #2196F3; }}
         .status-icon {{ font-size: 1.2em; margin-right: 5px; }}
         .compact-number {{ font-size: 0.9em; }}
     </style>
@@ -2119,21 +2147,21 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         <tr class="summary-table-header">
             <th title="Номер ступени нагрузки">Ступень</th>
             <th title="Временной интервал плато (секунды от начала теста)">Время (сек)</th>
-            <th title="Сумма целевых RPS всех Thread Groups на этой ступени">Целевой RPS<br/>(сумма всех групп)</th>
-            <th title="Сумма фактических RPS по успешным запросам (statut='ok')">Факт. RPS OK<br/>(сумма групп)</th>
-            <th title="Отклонение по успешным запросам: |Факт. RPS OK - Целевой RPS| / Целевой RPS × 100%">Отклонение OK %</th>
-            <th title="Сумма фактических RPS по всем запросам (успешные + ошибки)">Факт. RPS ALL<br/>(сумма групп)</th>
-            <th title="Отклонение по всем запросам: |Факт. RPS ALL - Целевой RPS| / Целевой RPS × 100%">Отклонение ALL %</th>
+            <th class="col-rps-ok" title="Сумма целевых RPS всех Thread Groups на этой ступени">Целевой RPS<br/>(сумма всех групп)</th>
+            <th class="col-rps-ok" title="Сумма фактических RPS по успешным запросам (statut='ok')">Факт. RPS OK<br/>(сумма групп)</th>
+            <th class="col-rps-ok" title="Отклонение по успешным запросам: |Факт. RPS OK - Целевой RPS| / Целевой RPS × 100%">Отклонение OK %</th>
+            <th class="col-rps-all" title="Сумма фактических RPS по всем запросам (успешные + ошибки)">Факт. RPS ALL<br/>(сумма групп)</th>
+            <th class="col-rps-all" title="Отклонение по всем запросам: |Факт. RPS ALL - Целевой RPS| / Целевой RPS × 100%">Отклонение ALL %</th>
             <th title="Сумма потоков всех Thread Groups">Всего<br/>потоков</th>
             <th title="Длительность плато в секундах">Длительность<br/>(сек)</th>
-            <th title="Сумма успешных запросов всех Thread Groups">Запросов<br/>(успешных)</th>
-            <th title="Сумма ошибок всех Thread Groups">Запросов<br/>(с ошибками)</th>
-            <th title="Общий процент успешных = (сумма успешных / (сумма успешных + сумма ошибок)) × 100%">% Успешных</th>
-            <th title="Общий процент неуспешных = (сумма ошибок / (сумма успешных + сумма ошибок)) × 100%">% Неуспешных</th>
-            <th title="Сумма ожидаемых запросов всех Thread Groups">Ожидаемое<br/>запросов</th>
-            <th title="Сумма фактических запросов всех Thread Groups">Фактическое<br/>запросов</th>
-            <th title="Отклонение по количеству запросов = |Фактическое - Ожидаемое| / Ожидаемое × 100%">Откл. запросов %</th>
-            <th title="Статус по количеству запросов (информационный): PASS ≤ 5%, WARN ≤ 10%, FAIL > 10%">Статус<br/>запросов</th>
+            <th class="col-req" title="Сумма успешных запросов всех Thread Groups">Запросов<br/>(успешных)</th>
+            <th class="col-req" title="Сумма ошибок всех Thread Groups">Запросов<br/>(с ошибками)</th>
+            <th class="col-quality" title="Общий процент успешных = (сумма успешных / (сумма успешных + сумма ошибок)) × 100%">% Успешных</th>
+            <th class="col-quality" title="Общий процент неуспешных = (сумма ошибок / (сумма успешных + сумма ошибок)) × 100%">% Неуспешных</th>
+            <th class="col-req" title="Сумма ожидаемых запросов всех Thread Groups">Ожидаемое<br/>запросов</th>
+            <th class="col-req" title="Сумма фактических запросов всех Thread Groups">Фактическое<br/>запросов</th>
+            <th class="col-req" title="Отклонение по количеству запросов = |Фактическое - Ожидаемое| / Ожидаемое × 100%">Откл. запросов %</th>
+            <th class="col-req" title="Статус по количеству запросов (информационный): PASS ≤ 5%, WARN ≤ 10%, FAIL > 10%">Статус<br/>запросов</th>
             <th title="Среднее время отклика по всем Thread Groups (взвешенное)">Avg RT<br/>(мс)</th>
             <th title="Максимальное P95 время отклика среди всех Thread Groups">P95 RT<br/>(мс)</th>
             <th title="Максимальное время отклика среди всех Thread Groups">Max RT<br/>(мс)</th>
@@ -2301,21 +2329,21 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         <tr class="{summary_row_class}">
             <td><strong>{summary['stage_idx']}</strong></td>
             <td>{summary['plateau_start_s']}-{summary['plateau_end_s']}</td>
-            <td><strong>{summary['total_target_rps']:.2f}</strong></td>
-            <td><strong>{summary['total_actual_rps_ok']:.2f}</strong></td>
-            <td class="{deviation_class}"><strong>{deviation_ok_display}</strong></td>
-            <td><strong>{summary['total_actual_rps_all']:.2f}</strong></td>
-            <td class="{deviation_class}"><strong>{deviation_all_display}</strong></td>
+            <td class="col-rps-ok"><strong>{summary['total_target_rps']:.2f}</strong></td>
+            <td class="col-rps-ok"><strong>{summary['total_actual_rps_ok']:.2f}</strong></td>
+            <td class="col-rps-ok {deviation_class}"><strong>{deviation_ok_display}</strong></td>
+            <td class="col-rps-all"><strong>{summary['total_actual_rps_all']:.2f}</strong></td>
+            <td class="col-rps-all {deviation_class}"><strong>{deviation_all_display}</strong></td>
             <td><strong>{summary['total_threads']}</strong></td>
             <td>{summary['plateau_duration_s'] if not summary.get('skip_only') else '—'}</td>
-            <td><strong>{summary['total_requests']:,}</strong></td>
-            <td class="{'deviation-bad' if summary['total_errors'] > 0 else ''}"><strong>{summary['total_errors']:,}</strong></td>
-            <td class="{success_percentage_class}"><strong>{success_percentage:.2f}%</strong></td>
-            <td class="{error_percentage_class}"><strong>{error_percentage:.2f}%</strong></td>
-            <td>{summary['total_expected_requests']:,}</td>
-            <td class="{requests_diff_class}"><strong>{summary['total_actual_all_requests']:,}</strong></td>
-            <td class="{requests_diff_class}"><strong>{requests_diff_pct:.2f}%</strong></td>
-            <td class="{req_status_class}"><strong>{req_status}</strong></td>
+            <td class="col-req"><strong>{summary['total_requests']:,}</strong></td>
+            <td class="col-req {'deviation-bad' if summary['total_errors'] > 0 else ''}"><strong>{summary['total_errors']:,}</strong></td>
+            <td class="col-quality {success_percentage_class}"><strong>{success_percentage:.2f}%</strong></td>
+            <td class="col-quality {error_percentage_class}"><strong>{error_percentage:.2f}%</strong></td>
+            <td class="col-req">{summary['total_expected_requests']:,}</td>
+            <td class="col-req {requests_diff_class}"><strong>{summary['total_actual_all_requests']:,}</strong></td>
+            <td class="col-req {requests_diff_class}"><strong>{requests_diff_pct:.2f}%</strong></td>
+            <td class="col-req {req_status_class}"><strong>{req_status}</strong></td>
             <td>{summary['weighted_avg_rt']:.0f}</td>
             <td>{summary['max_pct95_rt']:.0f}</td>
             <td>{summary['max_max_rt']:.0f}</td>
@@ -2407,21 +2435,21 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         <tr class="summary-row">
             <td><strong>Итого</strong></td>
             <td>-</td>
-            <td><strong>{total_all_target_rps:.2f}</strong></td>
-            <td><strong>{total_all_actual_rps_ok:.2f}</strong></td>
-            <td class="{summary_all_deviation_class}"><strong>{avg_all_deviation_ok:.2f}%</strong></td>
-            <td><strong>{total_all_actual_rps_all:.2f}</strong></td>
-            <td class="{summary_all_deviation_class}"><strong>{avg_all_deviation_all:.2f}%</strong></td>
+            <td class="col-rps-ok"><strong>{total_all_target_rps:.2f}</strong></td>
+            <td class="col-rps-ok"><strong>{total_all_actual_rps_ok:.2f}</strong></td>
+            <td class="col-rps-ok {summary_all_deviation_class}"><strong>{avg_all_deviation_ok:.2f}%</strong></td>
+            <td class="col-rps-all"><strong>{total_all_actual_rps_all:.2f}</strong></td>
+            <td class="col-rps-all {summary_all_deviation_class}"><strong>{avg_all_deviation_all:.2f}%</strong></td>
             <td>-</td>
             <td>-</td>
-            <td><strong>{total_all_requests:,}</strong></td>
-            <td class="{'deviation-bad' if total_all_errors > 0 else ''}"><strong>{total_all_errors:,}</strong></td>
-            <td class="{summary_all_success_class}"><strong>{success_percentage_all:.2f}%</strong></td>
-            <td class="{summary_all_error_class}"><strong>{error_percentage_all:.2f}%</strong></td>
-            <td><strong>{total_all_expected:,}</strong></td>
-            <td class="{req_overall_class}"><strong>{total_all_actual_all:,}</strong></td>
-            <td class="{req_overall_class}"><strong>{req_overall_diff_pct:.2f}%</strong></td>
-            <td class="{req_overall_status_class}"><strong>{req_overall_status}</strong></td>
+            <td class="col-req"><strong>{total_all_requests:,}</strong></td>
+            <td class="col-req {'deviation-bad' if total_all_errors > 0 else ''}"><strong>{total_all_errors:,}</strong></td>
+            <td class="col-quality {summary_all_success_class}"><strong>{success_percentage_all:.2f}%</strong></td>
+            <td class="col-quality {summary_all_error_class}"><strong>{error_percentage_all:.2f}%</strong></td>
+            <td class="col-req"><strong>{total_all_expected:,}</strong></td>
+            <td class="col-req {req_overall_class}"><strong>{total_all_actual_all:,}</strong></td>
+            <td class="col-req {req_overall_class}"><strong>{req_overall_diff_pct:.2f}%</strong></td>
+            <td class="col-req {req_overall_status_class}"><strong>{req_overall_status}</strong></td>
             <td><strong>{avg_all_rt:.0f}</strong></td>
             <td><strong>{max_all_pct95_rt:.0f}</strong></td>
             <td><strong>{max_all_max_rt:.0f}</strong></td>
