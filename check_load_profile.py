@@ -19,6 +19,32 @@ from typing import Any, Dict, List, Optional, Tuple
 from html import escape
 from pathlib import Path
 
+# Colgroup для основных таблиц UC (21 колонка, сумма ~100%).
+_UC_TABLE_COLGROUP = """        <colgroup class="uc-profile-cols">
+            <col style="width:4%" />
+            <col style="width:9%" />
+            <col style="width:4.1%" />
+            <col style="width:4.1%" />
+            <col style="width:4.1%" />
+            <col style="width:4.1%" />
+            <col style="width:4.1%" />
+            <col style="width:3%" />
+            <col style="width:4%" />
+            <col style="width:5.5%" />
+            <col style="width:5.5%" />
+            <col style="width:3.6%" />
+            <col style="width:3.6%" />
+            <col style="width:5.2%" />
+            <col style="width:5.2%" />
+            <col style="width:4.5%" />
+            <col style="width:6%" />
+            <col style="width:3.6%" />
+            <col style="width:3.6%" />
+            <col style="width:3.6%" />
+            <col style="width:9.6%" />
+        </colgroup>
+"""
+
 
 def load_influx_config(config_path: Optional[Path] = None) -> Dict[str, str]:
     """Загружает настройки InfluxDB из конфиг файла или использует значения по умолчанию."""
@@ -1632,17 +1658,38 @@ def _format_ns_utc(ns: Optional[int]) -> str:
         return str(ns)
 
 
-def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) -> str:
+def _emit_thread_group_tables_html(
+    thread_groups: Dict[str, Any],
+    tol: float,
+    *,
+    region_label: Optional[str] = None,
+    include_copy_ui: bool = True,
+) -> str:
     """Фрагмент HTML: таблицы по всем Thread Groups (один блок отчёта)."""
     frags: List[str] = []
+    if region_label:
+        frags.append(
+            f'    <div class="uc-tables-region" data-block-label="{escape(region_label)}">\n'
+            '    <div class="uc-bulk-copy-bar">\n'
+            '    <button type="button" class="copy-all-uc-btn" title="Все таблицы UC в этом блоке (TSV). Нижняя сводная «по всем TG» не копируется.">Скопировать все UC</button>\n'
+            "    </div>\n"
+        )
     sorted_tg_items = sorted(
         thread_groups.items(),
         key=lambda x: (x[1].get("status") != "FAIL", x[0]),
     )
+    wrap_open = ""
+    wrap_close = ""
+    if include_copy_ui:
+        wrap_open = """    <div class="table-copy-wrap uc-table-wrap">
+    <button type="button" class="copy-table-btn" title="Копировать таблицу: значения через табуляцию — вставка в Excel / таблицы">Скопировать таблицу</button>
+"""
+        wrap_close = "    </div>\n"
     for tg_name, tg_data in sorted_tg_items:
         frags.append(f"""
-    <h3>{tg_name} - <span class="status-{tg_data['status']}">{tg_data['status']}</span></h3>
-    <table>
+    <h3>{escape(tg_name)} - <span class="status-{tg_data['status']}">{tg_data['status']}</span></h3>
+{wrap_open}    <table>
+{_UC_TABLE_COLGROUP}
         <tr>
             <th>Ступень</th>
             <th>Время (сек)</th>
@@ -1932,9 +1979,11 @@ def _emit_thread_group_tables_html(thread_groups: Dict[str, Any], tol: float) ->
         </tr>
 """)
         
-        frags.append("""
+        frags.append(f"""
     </table>
-""")
+{wrap_close}""")
+    if region_label:
+        frags.append("    </div>\n")
     return "".join(frags)
 
 
@@ -1981,23 +2030,34 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
 """
     elif results.get("aggregate_cluster") and results.get("runner_count", 0) > 1:
         n = int(results.get("runner_count", 0))
-        src = escape(str(results.get("runner_source", "unknown")))
+        src = escape(str(results.get("runner_source", "jmeter_runner_meta")))
         multi_note = f"""
         <div style="margin: 15px 0; padding: 15px; background-color: #fff3e0; border-left: 3px solid #ef6c00; border-radius: 3px;">
             <h5 style="margin-top: 0; color: #e65100;">5. Кластерный fallback-режим</h5>
-            <p style="margin: 5px 0;">В measurement <code>jmeter</code> не обнаружены теги <code>runner/test_run</code>, поэтому сравнение выполнено только на уровне кластера: целевой RPS × <strong>{n}</strong>, фактический RPS — суммарно по всем источникам.</p>
-            <p style="margin: 5px 0;">Число раннеров получено из measurement <code>{src}</code>. Разрез «по каждому поду» в этом режиме недоступен.</p>
+            <p style="margin: 5px 0;">В measurement <code>jmeter</code> для этого <code>test_run</code> нет значений тега <code>runner</code> (или список пуст). Число экземпляров <strong>N = {n}</strong> взято из measurement <code>{src}</code>. Сравнение выполняется на уровне кластера: целевой RPS из профиля (на <strong>один</strong> инстанс JMX) × <strong>N</strong>, фактический RPS — по суммарным данным <code>jmeter</code> в окнах плато.</p>
+            <p style="margin: 5px 0;">Запросы к <code>jmeter</code> в этом режиме <strong>не фильтруются</strong> по тегу <code>test_run</code> (обратная совместимость со старыми точками без тега). Разрез «по каждому поду» недоступен, пока в <code>jmeter</code> не появится тег <code>runner</code>.</p>
         </div>
 """
 
     html = f"""<!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <title>Проверка профиля нагрузки - {results['test_run']}</title>
+    <script>
+    (function () {{
+      try {{
+        if (localStorage.getItem('loadProfileReportTheme') === 'dark') {{
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }}
+      }} catch (e) {{}}
+    }})();
+    </script>
     <style>
+        html {{ color-scheme: light; }}
+        html[data-theme="dark"] {{ color-scheme: dark; }}
         body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        h1 {{ color: #333; }}
+        h1 {{ color: #333; padding-right: 200px; box-sizing: border-box; }}
         .status-PASS {{ color: green; font-weight: bold; }}
         .status-FAIL {{ color: red; font-weight: bold; }}
         .status-SKIP {{ color: #616161; font-weight: bold; }}
@@ -2061,9 +2121,221 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         tr.summary-row {{ background-color: #e3f2fd; font-weight: bold; border-top: 2px solid #2196F3; border-bottom: 2px solid #2196F3; }}
         .status-icon {{ font-size: 1.2em; margin-right: 5px; }}
         .compact-number {{ font-size: 0.9em; }}
+        .table-copy-wrap {{
+            margin: 8px 0 20px 0;
+            max-width: 100%;
+            box-sizing: border-box;
+        }}
+        .table-copy-wrap table {{
+            width: 100%;
+            margin: 0;
+            table-layout: fixed;
+        }}
+        .table-copy-wrap th,
+        .table-copy-wrap td {{
+            padding: 3px 4px;
+            font-size: 0.78rem;
+            line-height: 1.2;
+            vertical-align: top;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+            font-variant-numeric: tabular-nums;
+        }}
+        .table-copy-wrap th {{ font-weight: 600; }}
+        .copy-table-btn {{
+            font-size: 0.9em;
+            padding: 6px 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            background: #1976d2;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+        }}
+        .copy-table-btn:hover {{ background: #1565c0; }}
+        .copy-table-btn:disabled {{ opacity: 0.7; cursor: wait; }}
+        .uc-bulk-copy-bar {{ margin: 10px 0 6px 0; }}
+        .copy-all-uc-btn {{
+            font-size: 0.9em;
+            padding: 6px 12px;
+            margin-right: 8px;
+            cursor: pointer;
+            background: #2e7d32;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+        }}
+        .copy-all-uc-btn:hover {{ background: #1b5e20; }}
+        .copy-all-uc-btn:disabled {{ opacity: 0.7; cursor: wait; }}
+        .theme-toggle-wrap {{
+            position: fixed;
+            top: max(12px, env(safe-area-inset-top, 0px));
+            right: max(16px, env(safe-area-inset-right, 0px));
+            z-index: 9999;
+            padding: 6px 8px;
+            margin: -6px -8px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+        }}
+        html[data-theme="dark"] .theme-toggle-wrap {{
+            background: rgba(22, 22, 24, 0.92);
+            box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
+        }}
+        .theme-toggle-btn {{
+            font-size: 0.85em;
+            padding: 8px 14px;
+            cursor: pointer;
+            background: #fff;
+            color: #333;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+        }}
+        .theme-toggle-btn:hover {{ background: #f5f5f5; }}
+        .theme-toggle-btn:focus-visible {{
+            outline: 2px solid #1976d2;
+            outline-offset: 2px;
+        }}
+        html[data-theme="dark"] body {{
+            background-color: #161618;
+            color: #e8e8ed;
+        }}
+        html[data-theme="dark"] h1 {{ color: #f0f0f5; }}
+        html[data-theme="dark"] h2,
+        html[data-theme="dark"] h3 {{ color: #e4e4e7; }}
+        html[data-theme="dark"] .status-PASS {{ color: #81c784; }}
+        html[data-theme="dark"] .status-FAIL {{ color: #ef5350; }}
+        html[data-theme="dark"] .status-SKIP {{ color: #9e9e9e; }}
+        html[data-theme="dark"] .status-PARTIAL {{ color: #ffb74d; }}
+        html[data-theme="dark"] .coverage-warn {{
+            background-color: #3a3420;
+            border-left-color: #ffca28;
+            color: #e8e8ed;
+        }}
+        html[data-theme="dark"] table {{ border-color: #3f4450; }}
+        html[data-theme="dark"] th,
+        html[data-theme="dark"] td {{ border-color: #3f4450; color: #e8e8ed; }}
+        html[data-theme="dark"] th {{ background-color: #252830; }}
+        html[data-theme="dark"] th:hover {{ background-color: #323848; }}
+        html[data-theme="dark"] .col-rps-ok {{ background-color: #1a2a3d; }}
+        html[data-theme="dark"] .col-rps-all {{ background-color: #2a2240; }}
+        html[data-theme="dark"] .col-req {{ background-color: #383225; }}
+        html[data-theme="dark"] .col-quality {{ background-color: #1e3026; }}
+        html[data-theme="dark"] th.col-rps-ok {{ background-color: #254060; }}
+        html[data-theme="dark"] th.col-rps-all {{ background-color: #3d3260; }}
+        html[data-theme="dark"] th.col-req {{ background-color: #5c4d28; }}
+        html[data-theme="dark"] th.col-quality {{ background-color: #2d4a35; }}
+        html[data-theme="dark"] .summary-table-header th {{ color: #f0f0f5 !important; }}
+        html[data-theme="dark"] .summary-table-header th.col-rps-ok {{ background-color: #254060 !important; }}
+        html[data-theme="dark"] .summary-table-header th.col-rps-all {{ background-color: #3d3260 !important; }}
+        html[data-theme="dark"] .summary-table-header th.col-req {{ background-color: #5c4d28 !important; }}
+        html[data-theme="dark"] .summary-table-header th.col-quality {{ background-color: #2d4a35 !important; }}
+        html[data-theme="dark"] .table-copy-wrap table tr th:nth-child(5), html[data-theme="dark"] .table-copy-wrap table tr td:nth-child(5),
+        html[data-theme="dark"] .table-copy-wrap table tr th:nth-child(7), html[data-theme="dark"] .table-copy-wrap table tr td:nth-child(7),
+        html[data-theme="dark"] .table-copy-wrap table tr th:nth-child(13), html[data-theme="dark"] .table-copy-wrap table tr td:nth-child(13),
+        html[data-theme="dark"] .table-copy-wrap table tr th:nth-child(17), html[data-theme="dark"] .table-copy-wrap table tr td:nth-child(17),
+        html[data-theme="dark"] .summary-all-tg-wrap table tr th:nth-child(5), html[data-theme="dark"] .summary-all-tg-wrap table tr td:nth-child(5),
+        html[data-theme="dark"] .summary-all-tg-wrap table tr th:nth-child(7), html[data-theme="dark"] .summary-all-tg-wrap table tr td:nth-child(7),
+        html[data-theme="dark"] .summary-all-tg-wrap table tr th:nth-child(13), html[data-theme="dark"] .summary-all-tg-wrap table tr td:nth-child(13),
+        html[data-theme="dark"] .summary-all-tg-wrap table tr th:nth-child(17), html[data-theme="dark"] .summary-all-tg-wrap table tr td:nth-child(17) {{
+            border-right-color: #5a6378 !important;
+        }}
+        html[data-theme="dark"] .table-copy-wrap table tr th:nth-child(5), html[data-theme="dark"] .table-copy-wrap table tr td:nth-child(5),
+        html[data-theme="dark"] .summary-all-tg-wrap table tr th:nth-child(5), html[data-theme="dark"] .summary-all-tg-wrap table tr td:nth-child(5) {{ background-color: #223548 !important; }}
+        html[data-theme="dark"] .table-copy-wrap table tr th:nth-child(7), html[data-theme="dark"] .table-copy-wrap table tr td:nth-child(7),
+        html[data-theme="dark"] .summary-all-tg-wrap table tr th:nth-child(7), html[data-theme="dark"] .summary-all-tg-wrap table tr td:nth-child(7) {{ background-color: #352850 !important; }}
+        html[data-theme="dark"] .table-copy-wrap table tr th:nth-child(16), html[data-theme="dark"] .table-copy-wrap table tr td:nth-child(16),
+        html[data-theme="dark"] .summary-all-tg-wrap table tr th:nth-child(16), html[data-theme="dark"] .summary-all-tg-wrap table tr td:nth-child(16) {{ background-color: #4a3d20 !important; }}
+        html[data-theme="dark"] .table-copy-wrap table tr th:nth-child(18), html[data-theme="dark"] .table-copy-wrap table tr td:nth-child(18),
+        html[data-theme="dark"] .table-copy-wrap table tr th:nth-child(19), html[data-theme="dark"] .table-copy-wrap table tr td:nth-child(19),
+        html[data-theme="dark"] .table-copy-wrap table tr th:nth-child(20), html[data-theme="dark"] .table-copy-wrap table tr td:nth-child(20),
+        html[data-theme="dark"] .summary-all-tg-wrap table tr th:nth-child(18), html[data-theme="dark"] .summary-all-tg-wrap table tr td:nth-child(18),
+        html[data-theme="dark"] .summary-all-tg-wrap table tr th:nth-child(19), html[data-theme="dark"] .summary-all-tg-wrap table tr td:nth-child(19),
+        html[data-theme="dark"] .summary-all-tg-wrap table tr th:nth-child(20), html[data-theme="dark"] .summary-all-tg-wrap table tr td:nth-child(20) {{ background-color: #22252c !important; }}
+        html[data-theme="dark"] .table-copy-wrap td:nth-child(17).status-PASS, html[data-theme="dark"] .summary-all-tg-wrap td:nth-child(17).status-PASS {{ background-color: #1e3d28 !important; color: #a5d6a7; }}
+        html[data-theme="dark"] .table-copy-wrap td:nth-child(17).status-PARTIAL, html[data-theme="dark"] .summary-all-tg-wrap td:nth-child(17).status-PARTIAL {{ background-color: #3d3020 !important; color: #ffcc80; }}
+        html[data-theme="dark"] .table-copy-wrap td:nth-child(17).status-FAIL, html[data-theme="dark"] .summary-all-tg-wrap td:nth-child(17).status-FAIL {{ background-color: #3d2020 !important; color: #ef9a9a; }}
+        html[data-theme="dark"] .deviation-good {{ color: #81c784; }}
+        html[data-theme="dark"] .deviation-warning {{ color: #ffb74d; }}
+        html[data-theme="dark"] .deviation-bad {{ color: #ef5350; }}
+        html[data-theme="dark"] tr:nth-child(even) {{ background-color: #1e2026; }}
+        html[data-theme="dark"] tr.row-pass {{ background-color: #1e2f24; }}
+        html[data-theme="dark"] tr.row-fail {{ background-color: #2f1e22; }}
+        html[data-theme="dark"] tr.row-skip {{ background-color: #26262c; color: #bdbdbd; }}
+        html[data-theme="dark"] tr.row-partial {{ background-color: #2f2c1e; }}
+        html[data-theme="dark"] tr.summary-row {{
+            background-color: #1a2838;
+            border-top-color: #64b5f6;
+            border-bottom-color: #64b5f6;
+        }}
+        html[data-theme="dark"] hr {{ border-color: #4a5160; }}
+        html[data-theme="dark"] code {{
+            background-color: #2d3340 !important;
+            color: #e4e4e7 !important;
+        }}
+        html[data-theme="dark"] code[style*="background-color: #fff8dc"] {{
+            background-color: #3a3428 !important;
+        }}
+        html[data-theme="dark"] h4[style*="color: #2c3e50"] {{ color: #e0e0e0 !important; }}
+        html[data-theme="dark"] h5[style*="color: #2196F3"] {{ color: #64b5f6 !important; }}
+        html[data-theme="dark"] h5[style*="color: #1565c0"] {{ color: #90caf9 !important; }}
+        html[data-theme="dark"] h5[style*="color: #856404"] {{ color: #ffca28 !important; }}
+        html[data-theme="dark"] h5[style*="color: #e65100"] {{ color: #ffab40 !important; }}
+        html[data-theme="dark"] h5[style*="color: #0d47a1"] {{ color: #90caf9 !important; }}
+        html[data-theme="dark"] h2[style*="color: #2e7d32"] {{ color: #81c784 !important; }}
+        html[data-theme="dark"] p[style*="color: #666"] {{ color: #a8a8b0 !important; }}
+        html[data-theme="dark"] p[style*="color:#444"] {{ color: #c4c4cc !important; }}
+        html[data-theme="dark"] p[style*="color: #444"] {{ color: #c4c4cc !important; }}
+        html[data-theme="dark"] p[style*="color:#555"] {{ color: #b0b0b8 !important; }}
+        html[data-theme="dark"] div[style*="background-color: #ffffff"] {{
+            background-color: #2a2d35 !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45) !important;
+        }}
+        html[data-theme="dark"] div[style*="background-color: #e8f4fd"] {{
+            background-color: #1e2a3a !important;
+            border-left-color: #42a5f5 !important;
+        }}
+        html[data-theme="dark"] div[style*="background-color: #fff3cd"] {{
+            background-color: #3a3420 !important;
+            border-left-color: #ffca28 !important;
+        }}
+        html[data-theme="dark"] div[style*="background-color: #fff3e0"] {{
+            background-color: #3a2e20 !important;
+            border-left-color: #ff9800 !important;
+        }}
+        html[data-theme="dark"] div[style*="background-color: #e3f2fd"] {{
+            background-color: #1e2a3a !important;
+            border-left-color: #42a5f5 !important;
+        }}
+        html[data-theme="dark"] div[style*="background-color: #f0f0f0"][style*="border-left: 4px solid #4CAF50"] {{
+            background-color: #252830 !important;
+        }}
+        html[data-theme="dark"] div[style*="background-color: #e8f5e9"][style*="border-left: 5px solid #4CAF50"] {{
+            background-color: #1e2f24 !important;
+            border-left-color: #66bb6a !important;
+        }}
+        html[data-theme="dark"] ul {{ color: #e0e0e4; }}
+        html[data-theme="dark"] .theme-toggle-btn {{
+            background: #2d3340;
+            color: #e8e8ed;
+            border-color: #4a5160;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+        }}
+        html[data-theme="dark"] .theme-toggle-btn:hover {{ background: #3a4250; }}
+        html[data-theme="dark"] .theme-toggle-btn:focus-visible {{ outline-color: #90caf9; }}
+        html[data-theme="dark"] .copy-table-btn {{ background: #1565c0; }}
+        html[data-theme="dark"] .copy-table-btn:hover {{ background: #1976d2; }}
+        html[data-theme="dark"] .copy-all-uc-btn {{ background: #2e7d32; }}
+        html[data-theme="dark"] .copy-all-uc-btn:hover {{ background: #388e3c; }}
     </style>
 </head>
 <body>
+    <div class="theme-toggle-wrap">
+        <button type="button" id="theme-toggle" class="theme-toggle-btn" aria-pressed="false" title="Переключить светлую и тёмную тему">Тёмная тема</button>
+    </div>
     <h1>Проверка профиля нагрузки</h1>
     <p><strong>Test Run ID:</strong> {results['test_run']}</p>
     <p><strong>Время проверки:</strong> {results['check_time']}</p>
@@ -2076,11 +2348,10 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         
         <div style="margin: 15px 0; padding: 15px; background-color: #ffffff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
             <h5 style="margin-top: 0; color: #2196F3;">1. Целевой RPS (эта Thread Group)</h5>
-            <p style="margin: 5px 0;"><strong>Когда рассчитывается:</strong> ДО теста (при парсинге JMX)</p>
-            <p style="margin: 5px 0;"><strong>Что показывает:</strong> Ожидаемый RPS для ЭТОЙ конкретной Thread Group</p>
-            <p style="margin: 5px 0;"><strong>Формула:</strong> <code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px;">(Constant Throughput Timer в RPM × количество потоков ЭТОЙ группы) / 60</code></p>
+            <p style="margin: 5px 0;"><strong>Что в колонке отчёта:</strong> значение из InfluxDB, серия <code>load_profile</code> (поле <code>target_rps</code> для ступени и Thread Group). Его обычно записывают <strong>до теста</strong> при разборе JMX/профиля; этот скрипт число не пересчитывает, а сравнивает с фактом из <code>jmeter</code>.</p>
+            <p style="margin: 5px 0;"><strong>Типичная связь с JMX:</strong> при стандартной схеме Constant Throughput Timer «цель на поток» ожидаемый RPS группы часто совпадает с <code>(CTT в RPM × количество потоков ЭТОЙ группы) / 60</code>. При других режимах CTT ориентируйтесь на число в профиле.</p>
             <p style="margin: 5px 0;"><strong>Пример:</strong> CTT = 10 RPM, потоков = 10 → (10 × 10) / 60 = <strong>1.67 RPS</strong></p>
-            <p style="margin: 5px 0; color: #666; font-style: italic;">Это уже сумма всех потоков ЭТОЙ Thread Group. Если у вас 10 потоков, каждый делает 10 RPM, то всего эта Thread Group должна выдавать 100 RPM = 1.67 RPS.</p>
+            <p style="margin: 5px 0; color: #666; font-style: italic;">Иллюстрация: 10 потоков по 10 RPM дают 100 RPM суммарно ≈ 1.67 RPS. Конкретная настройка таймера в JMeter может отличаться — источник истины для отчёта остаётся <code>load_profile.target_rps</code>.</p>
         </div>
         
         <div style="margin: 15px 0; padding: 15px; background-color: #ffffff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
@@ -2094,9 +2365,9 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         
         <div style="margin: 15px 0; padding: 15px; background-color: #e8f4fd; border-left: 3px solid #2196F3; border-radius: 3px;">
             <h5 style="margin-top: 0; color: #1565c0;">3. Статусы ступени (ранний стоп)</h5>
-            <p style="margin: 5px 0;"><strong>PASS / FAIL</strong> — полное окно плато по профилю; FAIL, если отклонение RPS &gt; {tol:g}%.</p>
-            <p style="margin: 5px 0;"><strong>PARTIAL</strong> — тест закончился внутри плато; RPS и «ожидаемые запросы» считаются по <strong>укороченной</strong> длительности; PARTIAL = по этому куску отклонение ≤ {tol:g}% (не путать с FAIL «не выдержали профиль» на полной ступени).</p>
-            <p style="margin: 5px 0;"><strong>SKIP</strong> — до плато этой ступени тест не дошёл; метрики не считаются, в общий FAIL не входит.</p>
+            <p style="margin: 5px 0;"><strong>PASS / FAIL</strong> — полное окно плато по профилю; FAIL, если отклонение ALL % <strong>строго больше</strong> порога из шапки отчёта (сейчас <strong>{tol:g}%</strong>).</p>
+            <p style="margin: 5px 0;"><strong>PARTIAL</strong> — тест закончился внутри плато; RPS и «ожидаемые запросы» считаются по <strong>укороченной</strong> длительности. Статус <strong>PARTIAL</strong> только если на этом окне отклонение ALL % ≤ порога; иначе — <strong>FAIL</strong> (даже на обрезанном плато).</p>
+            <p style="margin: 5px 0;"><strong>SKIP</strong> — до плато этой ступени тест не дошёл; метрики RPS для ступени не считаются. Такая ступень сама по себе не считается провалом профиля; общий статус определяется по остальным ступеням.</p>
             <p style="margin: 5px 0; color: #666; font-style: italic;">Нужны время старта из данных и последняя точка <code>jmeter</code> с тегом <code>test_run</code> (см. блок выше). Иначе все ступени считаются по полному окну из профиля.</p>
         </div>
         
@@ -2121,29 +2392,50 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
                 f'<span class="status-{rinfo["overall_status"]}">{rinfo["overall_status"]}</span></h2>\n'
                 f'    <p style="color:#555;font-size:0.95em;">Целевой RPS — из профиля для <strong>одного</strong> экземпляра JMX; факт — только точки <code>jmeter</code> с этим <code>runner</code>.</p>\n'
             )
-            html += _emit_thread_group_tables_html(rinfo["thread_groups"], tol)
+            html += _emit_thread_group_tables_html(
+                rinfo["thread_groups"],
+                tol,
+                region_label=f"Под (runner): {rid}",
+            )
         nclus = len(results["runners"])
         html += (
             f'    <h2>Сводка кластера (все поды, N = {nclus})</h2>\n'
             f'    <p style="color:#555;font-size:0.95em;">Фактический RPS — сумма по всем подам (фильтр <code>test_run</code>); целевой — значение из профиля × {nclus} (одинаковый план на каждом поде).</p>\n'
         )
+        html += _emit_thread_group_tables_html(
+            results["thread_groups"],
+            tol,
+            region_label=f"Сводка кластера (все поды, N = {nclus})",
+        )
     elif results.get("aggregate_cluster") and results.get("runner_count", 0) > 1:
         nclus = int(results.get("runner_count", 0))
         html += (
             f'    <h2>Сводка кластера (fallback, N = {nclus})</h2>\n'
-            f'    <p style="color:#555;font-size:0.95em;">Пер-под таблицы недоступны: теги <code>runner</code> в measurement <code>jmeter</code> отсутствуют.</p>\n'
+            f'    <p style="color:#555;font-size:0.95em;">Пер-под таблицы недоступны: в <code>jmeter</code> нет тега <code>runner</code> для этого прогона; см. п. 5 в пояснениях выше.</p>\n'
         )
-
-    html += _emit_thread_group_tables_html(results["thread_groups"], tol)
+        html += _emit_thread_group_tables_html(
+            results["thread_groups"],
+            tol,
+            region_label=f"Кластер (fallback, N = {nclus})",
+        )
+    else:
+        html += _emit_thread_group_tables_html(
+            results["thread_groups"],
+            tol,
+            region_label="Все Thread Groups",
+        )
     
     # Добавляем сводную таблицу по всем Thread Groups
-    html += """
+    html += f"""
     <hr style="margin: 40px 0; border: 2px solid #333;" />
     <div style="background-color: #e8f5e9; padding: 20px; margin: 20px 0; border-left: 5px solid #4CAF50; border-radius: 5px;">
         <h2 style="margin-top: 0; color: #2e7d32;">Сводная статистика по всем Thread Groups</h2>
         <p style="color: #666; font-style: italic; margin-bottom: 0;">Суммарные метрики всех Thread Groups вместе для каждой ступени</p>
     </div>
+    <div class="table-copy-wrap summary-all-tg-wrap">
+    <button type="button" class="copy-table-btn" title="Копировать таблицу: значения через табуляцию — вставка в Excel / таблицы">Скопировать таблицу</button>
     <table style="box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+{_UC_TABLE_COLGROUP}
         <tr class="summary-table-header">
             <th title="Номер ступени нагрузки">Ступень</th>
             <th title="Временной интервал плато (секунды от начала теста)">Время (сек)</th>
@@ -2413,7 +2705,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         elif error_percentage_all > 1.0:
             summary_all_error_class = "deviation-warning"
         
-        overall_status = "PASS" if avg_all_deviation_all <= 10.0 else "FAIL"
+        overall_status = "PASS" if avg_all_deviation_all <= tolerance_pct else "FAIL"
         overall_status_icon = "[OK]" if overall_status == "PASS" else "[FAIL]"
         req_overall_diff = total_all_actual_all - total_all_expected
         req_overall_diff_pct = (
@@ -2459,6 +2751,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
     
     html += """
     </table>
+    </div>
     <div style="background-color: #f0f0f0; padding: 15px; margin: 20px 0; border-left: 4px solid #4CAF50;">
         <h4 style="margin-top: 0;">Пояснения по сводной таблице:</h4>
         <ul style="margin-bottom: 0;">
@@ -2493,7 +2786,7 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
         for sampler_name, sampler_data in sampler_criteria.get("samplers", {}).items():
             criteria_max_ms = sampler_data.get("criteria", {}).get("max_response_time_ms", 0)
             html += f"""
-    <h3>{sampler_name} - Критерий: P95 ≤ {criteria_max_ms:.0f} мс</h3>
+    <h3>{escape(sampler_name)} - Критерий: P95 ≤ {criteria_max_ms:.0f} мс</h3>
     <table>
         <tr>
             <th>Ступень</th>
@@ -2547,6 +2840,115 @@ def generate_html_report(results: Dict[str, Any], output_path: Path) -> None:
 """
     
     html += """
+<script>
+(function () {
+  var THEME_KEY = 'loadProfileReportTheme';
+  function applyThemeFromStorage() {
+    try {
+      if (localStorage.getItem(THEME_KEY) === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
+    } catch (e) {}
+    syncThemeToggle();
+  }
+  function syncThemeToggle() {
+    var btn = document.getElementById('theme-toggle');
+    if (!btn) return;
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    btn.textContent = dark ? 'Светлая тема' : 'Тёмная тема';
+    btn.setAttribute('aria-pressed', dark ? 'true' : 'false');
+  }
+  function toggleTheme() {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    if (dark) {
+      document.documentElement.removeAttribute('data-theme');
+      try { localStorage.removeItem(THEME_KEY); } catch (e) {}
+    } else {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      try { localStorage.setItem(THEME_KEY, 'dark'); } catch (e) {}
+    }
+    syncThemeToggle();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyThemeFromStorage);
+  } else {
+    applyThemeFromStorage();
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var tbtn = document.getElementById('theme-toggle');
+    if (tbtn) tbtn.addEventListener('click', toggleTheme);
+  });
+})();
+(function () {
+  function normalizeCell(t) {
+    return t.replace(/\\r?\\n/g, ' ').replace(/\\t/g, ' ').replace(/\\s+/g, ' ').trim();
+  }
+  function tableToTSV(table) {
+    var rows = [];
+    for (var r = 0; r < table.rows.length; r++) {
+      var cells = [];
+      for (var c = 0; c < table.rows[r].cells.length; c++) {
+        cells.push(normalizeCell(table.rows[r].cells[c].innerText));
+      }
+      rows.push(cells.join('\\t'));
+    }
+    return rows.join('\\r\\n');
+  }
+  function copyPlainText(text, btn, originalLabel) {
+    function doneOk() {
+      btn.textContent = 'Скопировано';
+      btn.disabled = true;
+      setTimeout(function () {
+        btn.textContent = originalLabel;
+        btn.disabled = false;
+      }, 2000);
+    }
+    function fallback() {
+      window.prompt('Копирование в буфер недоступно. Выделите и Ctrl+C:', text);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(doneOk).catch(fallback);
+    } else {
+      fallback();
+    }
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.table-copy-wrap').forEach(function (wrap) {
+      var btn = wrap.querySelector('.copy-table-btn');
+      var table = wrap.querySelector('table');
+      if (!btn || !table) return;
+      var singleLabel = btn.textContent;
+      btn.addEventListener('click', function () {
+        copyPlainText(tableToTSV(table), btn, singleLabel);
+      });
+    });
+    document.querySelectorAll('.copy-all-uc-btn').forEach(function (btn) {
+      var allLabel = btn.textContent;
+      btn.addEventListener('click', function () {
+        var region = btn.closest('.uc-tables-region');
+        if (!region) return;
+        var wraps = region.querySelectorAll('.table-copy-wrap.uc-table-wrap');
+        var parts = [];
+        var bl = region.getAttribute('data-block-label');
+        if (bl) parts.push('# ' + bl);
+        wraps.forEach(function (w) {
+          var el = w.previousElementSibling;
+          var ucTitle = '';
+          if (el && el.tagName === 'H3') ucTitle = normalizeCell(el.innerText);
+          if (ucTitle) parts.push('# ' + ucTitle);
+          var tbl = w.querySelector('table');
+          if (tbl) parts.push(tableToTSV(tbl));
+          parts.push('');
+        });
+        var text = parts.join('\\r\\n').replace(/\\r\\n+$/, '');
+        copyPlainText(text, btn, allLabel);
+      });
+    });
+  });
+})();
+</script>
 </body>
 </html>
 """
