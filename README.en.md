@@ -145,5 +145,9 @@ To keep profile and metrics aligned:
 
 ## Example report
 
-![Sample load profile check report](docs/images/load-profile-check-sample-v2.png)
+<a href="docs/images/load-profile-check-full.png">
+  <img src="docs/images/load-profile-check-full.png" alt="Sample load profile check report" width="1200"/>
+</a>
+
+Click the image to open the full-size version.
 
