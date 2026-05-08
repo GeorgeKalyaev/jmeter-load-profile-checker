@@ -145,5 +145,5 @@ To keep profile and metrics aligned:
 
 ## Example report
 
-<a href="docs/images/load-profile-check-full.png"><img src="docs/images/load-profile-check-full.png" alt="Sample load profile check report" width="1200" /></a>
+<a href="docs/images/load-profile-check-full.png"><img src="docs/images/load-profile-check-preview.png" alt="Sample load profile check report (excerpt)" width="1200" /></a>
 
